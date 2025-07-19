@@ -1,0 +1,72 @@
+[
+  {
+    "duration_sec": 2.0969700813293457,
+    "params": {
+      "lr": 0.0008848621488986023,
+      "dropout": 0.0,
+      "hidden_mult": 1.0,
+      "proj_dim": 256,
+      "label_smoothing": 0.1,
+      "warmup_frac": 0.0,
+      "use_pos_weight_balancing": false
+    },
+    "run_name": "trial_1000",
+    "score": -Infinity
+  },
+  {
+    "duration_sec": 2.4954779148101807,
+    "params": {
+      "lr": 0.0007196606532081807,
+      "dropout": 0.0,
+      "hidden_mult": 1.5,
+      "proj_dim": 512,
+      "label_smoothing": 0.1,
+      "warmup_frac": 0.0,
+      "use_pos_weight_balancing": false
+    },
+    "run_name": "trial_1001",
+    "score": -Infinity
+  },
+  {
+    "duration_sec": 3.121161937713623,
+    "params": {
+      "lr": 0.0007109045988352233,
+      "dropout": 0.0,
+      "hidden_mult": 1.5,
+      "proj_dim": 512,
+      "label_smoothing": 0.1,
+      "warmup_frac": 0.0,
+      "use_pos_weight_balancing": true
+    },
+    "run_name": "trial_1002",
+    "score": -Infinity
+  },
+  {
+    "duration_sec": 2.706735849380493,
+    "params": {
+      "lr": 0.000582315847664629,
+      "dropout": 0.2,
+      "hidden_mult": 1.5,
+      "proj_dim": 512,
+      "label_smoothing": 0.0,
+      "warmup_frac": 0.05,
+      "use_pos_weight_balancing": true
+    },
+    "run_name": "trial_1003",
+    "score": -Infinity
+  },
+  {
+    "duration_sec": 2.993969202041626,
+    "params": {
+      "lr": 0.0005083476770258745,
+      "dropout": 0.2,
+      "hidden_mult": 1.5,
+      "proj_dim": 256,
+      "label_smoothing": 0.0,
+      "warmup_frac": 0.0,
+      "use_pos_weight_balancing": false
+    },
+    "run_name": "trial_1004",
+    "score": -Infinity
+  }
+]

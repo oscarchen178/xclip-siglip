@@ -1,0 +1,14 @@
+{
+  "duration_sec": 1.5994937419891357,
+  "params": {
+    "lr": 0.003834009266708994,
+    "dropout": 0.2,
+    "hidden_mult": 1.0,
+    "proj_dim": 256,
+    "label_smoothing": 0.05,
+    "warmup_frac": 0.0,
+    "use_pos_weight_balancing": false
+  },
+  "run_name": "trial_013",
+  "score": -Infinity
+}
