@@ -1,3 +1,8 @@
 .DS_Store
-/data/val2017
-/data/annotations
+/data/train_img/
+/data/test_img/
+/data/val_img/
+/data/test_annotations/
+/data/train_val_annotations/
+
+
