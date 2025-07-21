@@ -10,3 +10,6 @@
 /data/annotations/
 
 
+outputs/*.pt
+outputs/*.json
+pretrained_encoders/
