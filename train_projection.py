@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 
 # ======================== CONFIGURATION ========================
 TRAIN_SPLIT = 0.7           # 70% train, 30% test from train2017
-HIDDEN_DIM = 256            # MLP hidden dimension (reduced to prevent overfitting)
-OUTPUT_DIM = 256            # Final projection dimension
+HIDDEN_DIM = 1024            # MLP hidden dimension (reduced to prevent overfitting)
+OUTPUT_DIM = 1024            # Final projection dimension
 BATCH_SIZE = 1024           # Larger batch for better contrastive learning
 LEARNING_RATE = 5e-4        # Reduced learning rate
 WEIGHT_DECAY = 0.05         # Stronger regularization
