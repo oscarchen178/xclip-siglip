@@ -9,4 +9,8 @@
 /data/test2017/
 /data/annotations/
 
+outputs/*.pt
+outputs/*.json
+pretrained_encoders/
 
+models/
