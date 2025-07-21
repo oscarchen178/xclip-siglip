@@ -8,7 +8,7 @@
 /data/train2017/
 /data/test2017/
 /data/annotations/
-
+outputs/
 outputs/*.pt
 outputs/*.json
 pretrained_encoders/
