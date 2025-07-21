@@ -14,3 +14,4 @@ outputs/*.json
 pretrained_encoders/
 
 models/
+outputs/
