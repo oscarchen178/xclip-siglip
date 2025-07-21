@@ -11,17 +11,20 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 # ======================== CONFIGURATION ========================
 TRAIN_SPLIT = 0.7           # 70% train, 30% test from train2017
-HIDDEN_DIM = 512            # MLP hidden dimension
+HIDDEN_DIM = 256            # MLP hidden dimension (reduced to prevent overfitting)
 OUTPUT_DIM = 256            # Final projection dimension
-BATCH_SIZE = 512            # Training batch size
-LEARNING_RATE = 1e-3        # AdamW learning rate
-WEIGHT_DECAY = 0.01         # L2 regularization
-NUM_EPOCHS = 20             # Training epochs
+BATCH_SIZE = 1024           # Larger batch for better contrastive learning
+LEARNING_RATE = 5e-4        # Reduced learning rate
+WEIGHT_DECAY = 0.05         # Stronger regularization
+DROPOUT = 0.1               # Dropout for regularization
+NUM_EPOCHS = 50             # More epochs with early stopping
 TEMPERATURE = 0.07          # SigLIP temperature
 NUM_WORKERS = 4             # DataLoader workers
+PATIENCE = 5                # Early stopping patience
 # ===============================================================
 
 class ProjectionHead(nn.Module):
@@ -30,6 +33,7 @@ class ProjectionHead(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, HIDDEN_DIM),
             nn.ReLU(),
+            nn.Dropout(DROPOUT),
             nn.Linear(HIDDEN_DIM, OUTPUT_DIM),
             nn.LayerNorm(OUTPUT_DIM)
         )
@@ -111,6 +115,23 @@ def validate(image_proj, text_proj, dataloader, device):
     
     return total_loss / len(dataloader)
 
+def plot_losses(train_losses, val_losses):
+    """Plot training and validation losses"""
+    plots_dir = Path("plots")
+    plots_dir.mkdir(exist_ok=True)
+    
+    plt.figure(figsize=(10, 6))
+    epochs = range(1, len(train_losses) + 1)
+    plt.plot(epochs, train_losses, 'b-', label='Training Loss')
+    plt.plot(epochs, val_losses, 'r-', label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(plots_dir / 'projection_loss.png', dpi=150, bbox_inches='tight')
+    plt.show()
+
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     outputs_dir = Path("outputs")
@@ -159,10 +180,16 @@ def main():
         lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
     
-    # Training loop
-    print(f"Training for {NUM_EPOCHS} epochs...")
+    # Training loop with early stopping
+    print(f"Training for up to {NUM_EPOCHS} epochs...")
     
     best_val_loss = float('inf')
+    patience_counter = 0
+    train_losses = []
+    val_losses = []
+    
+    models_dir = Path("models")
+    models_dir.mkdir(exist_ok=True)
     
     for epoch in range(NUM_EPOCHS):
         # Train
@@ -171,33 +198,45 @@ def main():
         # Validate
         val_loss = validate(image_proj, text_proj, val_loader, device)
         
+        # Track losses
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
         print(f"  Train Loss: {train_loss:.4f}")
         print(f"  Val Loss:   {val_loss:.4f}")
         
-        # Save best model
+        # Save best model and early stopping
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            models_dir = Path("models")
-            models_dir.mkdir(exist_ok=True)
+            patience_counter = 0
             torch.save(image_proj.state_dict(), models_dir / "best_image_projection.pt")
             torch.save(text_proj.state_dict(), models_dir / "best_text_projection.pt")
             print(f"  ✅ New best model saved (val_loss: {val_loss:.4f})")
+        else:
+            patience_counter += 1
+            print(f"  No improvement ({patience_counter}/{PATIENCE})")
+            
+        # Early stopping
+        if patience_counter >= PATIENCE:
+            print(f"\nEarly stopping at epoch {epoch+1}")
+            break
     
     # Final test evaluation
     test_loss = validate(image_proj, text_proj, test_loader, device)
     print(f"\nFinal Test Loss: {test_loss:.4f}")
     
-    # Save final models and config
-    models_dir = Path("models")
-    models_dir.mkdir(exist_ok=True)
+    # Plot training curves
+    plot_losses(train_losses, val_losses)
     
+    # Save final models
     torch.save(image_proj.state_dict(), models_dir / "final_image_projection.pt")
     torch.save(text_proj.state_dict(), models_dir / "final_text_projection.pt")
     
-    print(f"Training complete! Models saved to {models_dir}/")
+    print(f"\nTraining complete! Models saved to {models_dir}/")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Final test loss: {test_loss:.4f}")
+    print(f"Loss plot saved to plots/projection_loss.png")
 
 if __name__ == "__main__":
     main()
