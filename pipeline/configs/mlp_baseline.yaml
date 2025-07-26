@@ -1,0 +1,38 @@
+# MLP Baseline Configuration
+
+experiment_name: "mlp_baseline"
+output_dir: "results"
+device: "auto"
+seed: 42
+
+data:
+  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
+  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
+  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
+  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
+  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
+  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+
+model:
+  type: "mlp"
+  output_dim: 512
+  hidden_dim: 1024
+  dropout: 0.1
+
+training:
+  batch_size: 1024
+  learning_rate: 5e-4
+  weight_decay: 0.01
+  num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
+
+loss:
+  type: "siglip"
+  temperature: 0.07
+
+evaluation:
+  top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
+  tsne_perplexity: 30
+  save_features: true

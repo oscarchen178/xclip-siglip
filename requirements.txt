@@ -19,5 +19,8 @@ tqdm>=4.64.0
 # GPU acceleration (optional but recommended)
 accelerate>=0.20.0
 
-# plotting
+# Configuration and visualization
+PyYAML>=6.0
 matplotlib>=3.5.0
+seaborn>=0.11.0
+scikit-learn>=1.1.0

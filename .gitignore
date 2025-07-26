@@ -1,17 +1,16 @@
 .DS_Store
-/data/train_img/
-/data/test_img/
-/data/val_img/
-/data/test_annotations/
-/data/train_val_annotations/
+
 /data/val2017/
 /data/train2017/
-/data/test2017/
 /data/annotations/
+
 outputs/
-outputs/*.pt
-outputs/*.json
+
 pretrained_encoders/
 
 models/
-outputs/
+
+pretrain_encoded/
+results/
+__pycache__/
+
