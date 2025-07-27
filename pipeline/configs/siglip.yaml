@@ -1,0 +1,37 @@
+# Authentic SigLIP Configuration
+
+experiment_name: "siglip"
+output_dir: "results"
+device: "auto"
+seed: 42
+
+data:
+  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
+  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
+  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
+  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
+  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
+  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+
+model:
+  type: "siglip"
+  output_dim: 512
+  dropout: 0.0              # SigLIP typically uses no dropout
+
+training:
+  batch_size: 512
+  learning_rate: 1e-4       # Standard learning rate for SigLIP
+  weight_decay: 0.01
+  num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
+
+loss:
+  type: "siglip"            # Uses authentic sigmoid loss
+  temperature: 0.01         # SigLIP uses lower temperature than CLIP
+
+evaluation:
+  top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
+  tsne_perplexity: 30
+  save_features: true

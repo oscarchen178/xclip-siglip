@@ -1,0 +1,39 @@
+# CLIP-style Configuration with Learnable Temperature
+
+experiment_name: "clip"
+output_dir: "results"
+device: "auto"
+seed: 42
+
+data:
+  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
+  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
+  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
+  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
+  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
+  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+
+model:
+  type: "clip"
+  output_dim: 512
+  hidden_dim: 1024          # Will default to input_dim // 2 if not specified
+  dropout: 0.1
+  learnable_temp: true      # CLIP's key innovation
+
+training:
+  batch_size: 512
+  learning_rate: 5e-4       # Higher LR for CLIP-style training
+  weight_decay: 0.01
+  num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
+
+loss:
+  type: "clip"              # Uses learnable temperature from model
+  temperature: 0.07         # Initial temperature (will be learned)
+
+evaluation:
+  top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
+  tsne_perplexity: 30
+  save_features: true

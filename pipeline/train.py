@@ -22,8 +22,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-# Import model definitions
-from models import siglip_loss, create_model
+# Import model and loss definitions
+from models import create_model
+from losses import compute_loss
 
 
 class EmbeddingDataset(Dataset):
@@ -89,6 +90,7 @@ def plot_training_curves(train_losses, val_losses, output_dir):
     print(f"Loss history saved to: {output_dir / 'loss_history.json'}")
 
 
+
 def train_epoch(image_head, text_head, train_loader, optimizer, device, config, is_cross_modal, pin_memory):
     """Train for one epoch."""
     if is_cross_modal:
@@ -110,8 +112,16 @@ def train_epoch(image_head, text_head, train_loader, optimizer, device, config, 
             image_proj = image_head(image_emb)
             text_proj = text_head(text_emb)
         
+        # Handle BLIP momentum features if needed
+        momentum_image_proj = None
+        momentum_text_proj = None
+        if config['model']['type'] == 'blip' and config['loss'].get('alpha', 0) > 0:
+            momentum_image_proj = image_head(image_emb, use_momentum=True)
+            momentum_text_proj = text_head(text_emb, use_momentum=True)
+        
         # Compute loss
-        loss = siglip_loss(image_proj, text_proj, float(config['loss']['temperature']))
+        loss = compute_loss(image_proj, text_proj, config, image_head, text_head,
+                          momentum_image_proj, momentum_text_proj)
         
         # Backward pass
         optimizer.zero_grad()
@@ -122,6 +132,12 @@ def train_epoch(image_head, text_head, train_loader, optimizer, device, config, 
             float(config['training']['max_grad_norm'])
         )
         optimizer.step()
+        
+        # Update BLIP momentum networks
+        if config['model']['type'] == 'blip':
+            if not is_cross_modal:
+                image_head.update_momentum()
+                text_head.update_momentum()
         
         total_loss += loss.item()
     
@@ -150,8 +166,16 @@ def validate(image_head, text_head, val_loader, device, config, is_cross_modal, 
             image_proj = image_head(image_emb)
             text_proj = text_head(text_emb)
         
+        # Handle BLIP momentum features if needed (for validation)
+        momentum_image_proj = None
+        momentum_text_proj = None
+        if config['model']['type'] == 'blip' and config['loss'].get('alpha', 0) > 0:
+            momentum_image_proj = image_head(image_emb, use_momentum=True)
+            momentum_text_proj = text_head(text_emb, use_momentum=True)
+        
         # Compute loss
-        loss = siglip_loss(image_proj, text_proj, float(config['loss']['temperature']))
+        loss = compute_loss(image_proj, text_proj, config, image_head, text_head,
+                          momentum_image_proj, momentum_text_proj)
         total_loss += loss.item()
     
     return total_loss / len(val_loader)
@@ -289,7 +313,16 @@ def main():
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         
-        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train: {train_loss:.4f}, Val: {val_loss:.4f}")
+        # Log epoch results with optional temperature for CLIP
+        log_msg = f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train: {train_loss:.4f}, Val: {val_loss:.4f}"
+        
+        if config['model']['type'] == 'clip' and not is_cross_modal:
+            # Log learned temperature for CLIP
+            if hasattr(image_head, 'get_temperature'):
+                temp = image_head.get_temperature()
+                log_msg += f", Temp: {temp:.3f}"
+        
+        print(log_msg)
         
         # Save best model
         if val_loss < best_val_loss:

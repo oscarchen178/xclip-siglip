@@ -1,0 +1,40 @@
+# BLIP-style Configuration with Momentum Learning
+
+experiment_name: "blip"
+output_dir: "results"
+device: "auto"
+seed: 42
+
+data:
+  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
+  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
+  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
+  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
+  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
+  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+
+model:
+  type: "blip"
+  output_dim: 512
+  hidden_dim: 1024
+  dropout: 0.1
+  momentum: 0.999           # BLIP's momentum coefficient
+
+training:
+  batch_size: 512           # Moderate batch size (momentum effectively increases it)
+  learning_rate: 2e-4       # Slightly higher for momentum training
+  weight_decay: 0.01
+  num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
+
+loss:
+  type: "blip"
+  temperature: 0.05
+  alpha: 0.4                # Weight for momentum loss component
+
+evaluation:
+  top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
+  tsne_perplexity: 30
+  save_features: true

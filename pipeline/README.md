@@ -18,6 +18,7 @@ xclip-siglip/
     ├── evaluate.py
     ├── split_train_data.py
     ├── models.py              # Model definitions
+    ├── losses.py              # Loss functions
     └── configs/
 ```
 
@@ -80,6 +81,56 @@ model:
   hidden_dim: 1024
   num_heads: 8
   dropout: 0.1
+```
+
+## SOTA Projection Heads
+
+**4. SigLIP** (`type: \"siglip\"`) - Authentic SigLIP architecture
+```yaml
+model:
+  type: \"siglip\"
+  output_dim: 512
+  dropout: 0.0              # SigLIP uses no dropout
+loss:
+  type: \"siglip\"            # Authentic sigmoid loss
+  temperature: 0.01         # Lower temperature than CLIP
+```
+
+**5. CLIP** (`type: \"clip\"`) - Learnable temperature scaling
+```yaml
+model:
+  type: \"clip\"
+  output_dim: 512
+  hidden_dim: 1024      # Defaults to input_dim // 2
+  dropout: 0.1
+  learnable_temp: true  # Key CLIP innovation
+loss:
+  type: \"clip\"          # Uses learnable temperature
+```
+
+**6. ALIGN** (`type: \"align\"`) - Batch normalization and larger capacity
+```yaml
+model:
+  type: \"align\"
+  output_dim: 512
+  hidden_dim: 2048      # Larger hidden dimensions
+  dropout: 0.1
+  use_bn: true          # BatchNorm instead of LayerNorm
+loss:
+  type: \"align\"
+```
+
+**7. BLIP** (`type: \"blip\"`) - Momentum contrastive learning
+```yaml
+model:
+  type: \"blip\"
+  output_dim: 512
+  hidden_dim: 1024
+  dropout: 0.1
+  momentum: 0.999       # Momentum coefficient
+loss:
+  type: \"blip\"
+  alpha: 0.4            # Momentum loss weight
 ```
 
 ## Data Splits (After `split_train_data.py`)
@@ -235,6 +286,22 @@ metrics['map@10'] = compute_map_at_k(similarities, k=10)
 
 2. **The metric will automatically appear in results**
 
+**To add new loss functions:**
+
+1. **Add loss function in `losses.py`**:
+```python
+def custom_loss(image_features, text_features, temperature=0.05):
+    """Your custom loss implementation"""
+    # Your implementation here
+    return loss
+```
+
+2. **Update `compute_loss()` function in `losses.py`**:
+```python
+elif loss_type == 'custom':
+    return custom_loss(image_proj, text_proj, float(config['loss']['temperature']))
+```
+
 ## Important Notes
 
 ### Data Integrity
@@ -243,7 +310,8 @@ metrics['map@10'] = compute_map_at_k(similarities, k=10)
 - ✅ **Accurate T2I metrics**: Finds rank of exact corresponding image
 
 ### Code Organization  
-- **`models.py`**: All projection head definitions and loss functions
+- **`models.py`**: All projection head definitions and model factory
+- **`losses.py`**: All loss functions (SigLIP, CLIP, ALIGN, BLIP)
 - **`train.py`**: Training logic only
 - **`evaluate.py`**: Evaluation with proper COCO handling
 - **`split_train_data.py`**: Image-level data splitting
@@ -253,3 +321,25 @@ metrics['map@10'] = compute_map_at_k(similarities, k=10)
 - I2T scores benefit from COCO's multiple captions per image
 - Proper data splits ensure realistic generalization metrics
 - Training curves automatically saved to monitor convergence and overfitting
+
+## Quick SOTA Model Testing
+
+```bash
+# Test all SOTA models
+python train.py configs/siglip.yaml           # Authentic SigLIP with sigmoid loss
+python train.py configs/clip.yaml             # CLIP with learnable temperature  
+python train.py configs/align.yaml            # ALIGN with batch normalization
+python train.py configs/blip.yaml             # BLIP with momentum learning
+
+# Evaluate results
+python evaluate.py configs/siglip.yaml
+python evaluate.py configs/clip.yaml
+python evaluate.py configs/align.yaml  
+python evaluate.py configs/blip.yaml
+```
+
+**Expected Differences:**
+- **SigLIP**: Authentic sigmoid loss, simple architecture, lower temperature
+- **CLIP**: Logs learned temperature, may converge faster
+- **ALIGN**: Uses BatchNorm, good for larger batch sizes
+- **BLIP**: Momentum updates, more stable training

@@ -1,0 +1,39 @@
+# ALIGN-style Configuration with Batch Normalization
+
+experiment_name: "align"
+output_dir: "results"
+device: "auto"
+seed: 42
+
+data:
+  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
+  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
+  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
+  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
+  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
+  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+
+model:
+  type: "align"
+  output_dim: 512
+  hidden_dim: 2048          # ALIGN uses larger hidden dimensions
+  dropout: 0.1
+  use_bn: true              # ALIGN's key feature: BatchNorm instead of LayerNorm
+
+training:
+  batch_size: 1024          # ALIGN benefits from larger batches
+  learning_rate: 1e-4       # Standard learning rate
+  weight_decay: 0.01
+  num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
+
+loss:
+  type: "align"
+  temperature: 0.05         # Fixed temperature for ALIGN
+
+evaluation:
+  top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
+  tsne_perplexity: 30
+  save_features: true

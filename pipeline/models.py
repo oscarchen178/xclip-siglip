@@ -100,23 +100,142 @@ class CrossModalProjectionHead(nn.Module):
         return img_final, txt_final
 
 
-# Loss Functions
+# SOTA Projection Heads
 
-def siglip_loss(image_features, text_features, temperature=0.05):
-    """SigLIP loss function."""
-    batch_size = image_features.shape[0]
+class SigLIPProjectionHead(nn.Module):
+    """SigLIP projection head - simple linear projection with layer norm."""
+    def __init__(self, input_dim, output_dim, dropout=0.0):
+        super().__init__()
+        
+        # SigLIP uses a simple architecture: LayerNorm -> Dropout -> Linear
+        self.layer_norm = nn.LayerNorm(input_dim)
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.projection = nn.Linear(input_dim, output_dim, bias=False)  # No bias in SigLIP
+        
+        # Initialize projection layer
+        nn.init.normal_(self.projection.weight, std=input_dim ** -0.5)
     
-    # Compute similarity matrix
-    logits = torch.matmul(image_features, text_features.T) / temperature
+    def forward(self, x):
+        # SigLIP: LayerNorm -> Dropout -> Linear -> L2 Normalize
+        x = self.layer_norm(x)
+        x = self.dropout(x)
+        x = self.projection(x)
+        return F.normalize(x, dim=-1)
+
+class CLIPProjectionHead(nn.Module):
+    """CLIP-style projection head with learnable temperature scaling."""
+    def __init__(self, input_dim, output_dim, hidden_dim=None, dropout=0.1, learnable_temp=True):
+        super().__init__()
+        
+        if hidden_dim is None:
+            hidden_dim = input_dim // 2
+        
+        # Simple projection (CLIP uses single linear layer)
+        self.projection = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+        )
+        
+        # Learnable temperature parameter (CLIP innovation)
+        if learnable_temp:
+            self.logit_scale = nn.Parameter(torch.ones([]) * (1/0.07).log())  # Init to 1/0.07
+        else:
+            self.register_buffer('logit_scale', torch.tensor((1/0.07).log()))
     
-    # Create labels (positive pairs are on diagonal)
-    labels = torch.arange(batch_size, device=logits.device)
+    def forward(self, x):
+        return F.normalize(self.projection(x), dim=-1)
     
-    # Compute cross-entropy loss for both directions
-    loss_i2t = F.cross_entropy(logits, labels)
-    loss_t2i = F.cross_entropy(logits.T, labels)
+    def get_temperature(self):
+        """Get current temperature (for monitoring)."""
+        return self.logit_scale.exp().item()
+
+
+class ALIGNProjectionHead(nn.Module):
+    """ALIGN-style dual encoder with batch normalization and larger capacity."""
+    def __init__(self, input_dim, output_dim, hidden_dim, dropout=0.1, use_bn=True):
+        super().__init__()
+        
+        layers = [
+            nn.Linear(input_dim, hidden_dim),
+        ]
+        
+        if use_bn:
+            layers.append(nn.BatchNorm1d(hidden_dim))
+        else:
+            layers.append(nn.LayerNorm(hidden_dim))
+            
+        layers.extend([
+            nn.ReLU(inplace=True),  # ALIGN uses ReLU
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+        ])
+        
+        if use_bn:
+            layers.append(nn.BatchNorm1d(hidden_dim // 2))
+        else:
+            layers.append(nn.LayerNorm(hidden_dim // 2))
+            
+        layers.extend([
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, output_dim),
+        ])
+        
+        self.projection = nn.Sequential(*layers)
     
-    return (loss_i2t + loss_t2i) / 2
+    def forward(self, x):
+        return F.normalize(self.projection(x), dim=-1)
+
+
+class BLIPProjectionHead(nn.Module):
+    """BLIP-style projection head with momentum updates."""
+    def __init__(self, input_dim, output_dim, hidden_dim, dropout=0.1, momentum=0.999):
+        super().__init__()
+        
+        # Main projection head
+        self.projection = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+            nn.LayerNorm(output_dim)
+        )
+        
+        # Momentum projection head (for contrastive learning)
+        self.momentum_projection = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+            nn.LayerNorm(output_dim)
+        )
+        
+        # Initialize momentum projection with same weights
+        for param_main, param_momentum in zip(self.projection.parameters(), 
+                                            self.momentum_projection.parameters()):
+            param_momentum.data.copy_(param_main.data)
+            param_momentum.requires_grad = False  # No gradients for momentum network
+        
+        self.momentum = momentum
+    
+    def forward(self, x, use_momentum=False):
+        if use_momentum:
+            with torch.no_grad():
+                return F.normalize(self.momentum_projection(x), dim=-1)
+        else:
+            return F.normalize(self.projection(x), dim=-1)
+    
+    @torch.no_grad()
+    def update_momentum(self):
+        """Update momentum projection head."""
+        for param_main, param_momentum in zip(self.projection.parameters(), 
+                                            self.momentum_projection.parameters()):
+            param_momentum.data = param_momentum.data * self.momentum + param_main.data * (1. - self.momentum)
+
+
+# Model Factory Function
 
 
 def create_model(config, image_dim, text_dim):
@@ -169,5 +288,69 @@ def create_model(config, image_dim, text_dim):
         )
         return cross_head, None, True
     
+    elif model_type == 'siglip':
+        image_head = SigLIPProjectionHead(
+            image_dim,
+            model_config['output_dim'],
+            model_config.get('dropout', 0.0)
+        )
+        text_head = SigLIPProjectionHead(
+            text_dim,
+            model_config['output_dim'],
+            model_config.get('dropout', 0.0)
+        )
+        return image_head, text_head, False
+    
+    elif model_type == 'clip':
+        image_head = CLIPProjectionHead(
+            image_dim,
+            model_config['output_dim'],
+            model_config.get('hidden_dim', image_dim // 2),
+            model_config.get('dropout', 0.1),
+            model_config.get('learnable_temp', True)
+        )
+        text_head = CLIPProjectionHead(
+            text_dim,
+            model_config['output_dim'],
+            model_config.get('hidden_dim', text_dim // 2),
+            model_config.get('dropout', 0.1),
+            model_config.get('learnable_temp', True)
+        )
+        return image_head, text_head, False
+    
+    elif model_type == 'align':
+        image_head = ALIGNProjectionHead(
+            image_dim,
+            model_config['output_dim'],
+            model_config['hidden_dim'],
+            model_config.get('dropout', 0.1),
+            model_config.get('use_bn', True)
+        )
+        text_head = ALIGNProjectionHead(
+            text_dim,
+            model_config['output_dim'],
+            model_config['hidden_dim'],
+            model_config.get('dropout', 0.1),
+            model_config.get('use_bn', True)
+        )
+        return image_head, text_head, False
+    
+    elif model_type == 'blip':
+        image_head = BLIPProjectionHead(
+            image_dim,
+            model_config['output_dim'],
+            model_config['hidden_dim'],
+            model_config.get('dropout', 0.1),
+            model_config.get('momentum', 0.999)
+        )
+        text_head = BLIPProjectionHead(
+            text_dim,
+            model_config['output_dim'],
+            model_config['hidden_dim'],
+            model_config.get('dropout', 0.1),
+            model_config.get('momentum', 0.999)
+        )
+        return image_head, text_head, False
+    
     else:
-        raise ValueError(f"Unknown model type: {model_type}")
+        raise ValueError(f"Unknown model type: {model_type}. Supported types: mlp, attention, cross_modal, siglip, clip, align, blip")
