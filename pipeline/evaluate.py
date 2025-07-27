@@ -62,15 +62,14 @@ class EmbeddingDataset(Dataset):
         return self.image_embeddings[idx], self.text_embeddings[idx], self.image_ids[idx]
 
 
-def compute_retrieval_metrics(image_features, text_features, k_values, image_ids=None):
+def compute_retrieval_metrics(image_features, text_features, k_values, image_ids=None, batch_size=1000):
     """Compute retrieval metrics with proper COCO handling (1 image -> 5 captions)."""
     # Normalize features
     image_features = F.normalize(image_features, dim=-1)
     text_features = F.normalize(text_features, dim=-1)
     
-    # Compute similarity matrix
-    similarities = torch.matmul(image_features, text_features.T)
-    num_samples = similarities.size(0)
+    num_samples = image_features.size(0)
+    device = image_features.device
     
     if image_ids is None:
         print("Warning: No image_ids provided - using simple index-based evaluation")
@@ -83,35 +82,48 @@ def compute_retrieval_metrics(image_features, text_features, k_values, image_ids
     for idx, img_id in enumerate(image_ids):
         image_id_to_indices[img_id].append(idx)
     
-    # Image-to-text retrieval (corrected for COCO)
+    # Image-to-text retrieval (corrected for COCO) - optimized batch processing
     i2t_ranks = []
-    for i in tqdm(range(num_samples), desc="Computing I2T ranks"):
-        sim_i = similarities[i]  # Similarities for this image
-        sorted_indices = torch.argsort(sim_i, descending=True)
+    for start_idx in tqdm(range(0, num_samples, batch_size), desc="Computing I2T ranks"):
+        end_idx = min(start_idx + batch_size, num_samples)
+        batch_indices = range(start_idx, end_idx)
         
-        # Find rank of ANY caption from the same image
-        target_image_id = image_ids[i]
-        target_caption_indices = image_id_to_indices[target_image_id]
+        # Compute similarities for batch of images against all texts
+        batch_similarities = torch.matmul(image_features[start_idx:end_idx], text_features.T)
         
-        # Find the best rank among all captions of this image
-        ranks_for_image = []
-        for target_idx in target_caption_indices:
-            rank = (sorted_indices == target_idx).nonzero(as_tuple=True)[0].item() + 1
-            ranks_for_image.append(rank)
+        # Vectorized rank computation for the batch
+        sorted_indices = torch.argsort(batch_similarities, descending=True, dim=1)
         
-        best_rank = min(ranks_for_image)  # Best rank among all captions
-        i2t_ranks.append(best_rank)
+        for i, batch_i in enumerate(batch_indices):
+            # Find rank of ANY caption from the same image
+            target_image_id = image_ids[batch_i]
+            target_caption_indices = image_id_to_indices[target_image_id]
+            
+            # Vectorized rank finding
+            target_mask = torch.zeros(num_samples, dtype=torch.bool, device=device)
+            target_mask[target_caption_indices] = True
+            
+            # Find positions where target indices appear in sorted order
+            ranks = torch.where(target_mask[sorted_indices[i]])[0]
+            best_rank = (ranks[0] + 1).item() if len(ranks) > 0 else num_samples
+            i2t_ranks.append(best_rank)
     
-    # Text-to-image retrieval (find rank of the EXACT corresponding image)
+    # Text-to-image retrieval (find rank of the EXACT corresponding image) - optimized batch processing  
     t2i_ranks = []
-    for j in tqdm(range(num_samples), desc="Computing T2I ranks"):
-        sim_j = similarities[:, j]  # Similarities for this caption
-        sorted_indices = torch.argsort(sim_j, descending=True)
+    for start_idx in tqdm(range(0, num_samples, batch_size), desc="Computing T2I ranks"):
+        end_idx = min(start_idx + batch_size, num_samples)
+        batch_indices = range(start_idx, end_idx)
         
-        # Find rank of the EXACT corresponding image (not any image with same ID)
-        # For T2I: each caption should retrieve its specific paired image
-        rank = (sorted_indices == j).nonzero(as_tuple=True)[0].item() + 1
-        t2i_ranks.append(rank)
+        # Compute similarities for batch of texts against all images
+        batch_similarities = torch.matmul(image_features, text_features[start_idx:end_idx].T)
+        
+        # Vectorized rank computation for T2I
+        sorted_indices = torch.argsort(batch_similarities, descending=True, dim=0)
+        
+        for j, batch_j in enumerate(batch_indices):
+            # Find rank of the EXACT corresponding image
+            rank = (sorted_indices[:, j] == batch_j).nonzero(as_tuple=True)[0].item() + 1
+            t2i_ranks.append(rank)
     
     # Compute recall@k
     metrics = {}
@@ -136,7 +148,7 @@ def compute_retrieval_metrics(image_features, text_features, k_values, image_ids
     
     print(f"Evaluation stats: {total_samples} samples, {unique_images} unique images, {total_samples/unique_images:.1f} captions/image")
     
-    return metrics, similarities
+    return metrics, None
 
 
 def create_visualizations(image_features, text_features, output_dir, config):

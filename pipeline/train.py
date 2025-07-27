@@ -99,12 +99,9 @@ def train_epoch(image_head, text_head, train_loader, optimizer, device, config, 
     
     total_loss = 0
     for image_emb, text_emb in tqdm(train_loader, desc="Training"):
-        if device.type == 'mps':
-            # Ensure float32 for MPS compatibility
-            image_emb = image_emb.to(device, dtype=torch.float32)
-            text_emb = text_emb.to(device, dtype=torch.float32)
-        else:
-            image_emb, text_emb = image_emb.to(device, non_blocking=pin_memory), text_emb.to(device, non_blocking=pin_memory)
+        # Convert to float32 to ensure dtype compatibility with projection heads
+        image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
+        text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
         # Forward pass
         if is_cross_modal:
@@ -142,12 +139,9 @@ def validate(image_head, text_head, val_loader, device, config, is_cross_modal, 
     
     total_loss = 0
     for image_emb, text_emb in tqdm(val_loader, desc="Validation"):
-        if device.type == 'mps':
-            # Ensure float32 for MPS compatibility
-            image_emb = image_emb.to(device, dtype=torch.float32)
-            text_emb = text_emb.to(device, dtype=torch.float32)
-        else:
-            image_emb, text_emb = image_emb.to(device, non_blocking=pin_memory), text_emb.to(device, non_blocking=pin_memory)
+        # Convert to float32 to ensure dtype compatibility with projection heads
+        image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
+        text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
         # Forward pass
         if is_cross_modal:
