@@ -34,20 +34,36 @@ warnings.filterwarnings('ignore', category=RuntimeWarning, module='sklearn')
 
 
 class EmbeddingDataset(Dataset):
-    """Simple dataset for pre-encoded embeddings."""
-    def __init__(self, image_path, text_path):
+    """Simple dataset for pre-encoded embeddings with image ID support."""
+    def __init__(self, image_path, text_path, metadata_path=None):
         self.image_embeddings = torch.load(image_path, map_location='cpu')
         self.text_embeddings = torch.load(text_path, map_location='cpu')
+        
+        # Try to load image IDs from metadata
+        self.image_ids = None
+        if metadata_path and Path(metadata_path).exists():
+            try:
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                self.image_ids = metadata.get('image_ids', None)
+                if self.image_ids:
+                    print(f"Loaded {len(self.image_ids)} image IDs from metadata")
+            except Exception as e:
+                print(f"Warning: Could not load metadata from {metadata_path}: {e}")
+        
+        if self.image_ids is None:
+            print("Warning: No image IDs available - using index-based evaluation")
+            self.image_ids = list(range(len(self.image_embeddings)))
         
     def __len__(self):
         return len(self.image_embeddings)
     
     def __getitem__(self, idx):
-        return self.image_embeddings[idx], self.text_embeddings[idx]
+        return self.image_embeddings[idx], self.text_embeddings[idx], self.image_ids[idx]
 
 
-def compute_retrieval_metrics(image_features, text_features, k_values):
-    """Compute retrieval metrics."""
+def compute_retrieval_metrics(image_features, text_features, k_values, image_ids=None):
+    """Compute retrieval metrics with proper COCO handling (1 image -> 5 captions)."""
     # Normalize features
     image_features = F.normalize(image_features, dim=-1)
     text_features = F.normalize(text_features, dim=-1)
@@ -56,19 +72,44 @@ def compute_retrieval_metrics(image_features, text_features, k_values):
     similarities = torch.matmul(image_features, text_features.T)
     num_samples = similarities.size(0)
     
-    # Image-to-text retrieval
+    if image_ids is None:
+        print("Warning: No image_ids provided - using simple index-based evaluation")
+        print("This may give incorrect results for COCO dataset (1 image -> 5 captions)")
+        image_ids = list(range(num_samples))  # Fallback to index-based
+    
+    # Create mapping from image_id to all indices with that image_id
+    from collections import defaultdict
+    image_id_to_indices = defaultdict(list)
+    for idx, img_id in enumerate(image_ids):
+        image_id_to_indices[img_id].append(idx)
+    
+    # Image-to-text retrieval (corrected for COCO)
     i2t_ranks = []
     for i in tqdm(range(num_samples), desc="Computing I2T ranks"):
-        sim_i = similarities[i]
+        sim_i = similarities[i]  # Similarities for this image
         sorted_indices = torch.argsort(sim_i, descending=True)
-        rank = (sorted_indices == i).nonzero(as_tuple=True)[0].item() + 1
-        i2t_ranks.append(rank)
+        
+        # Find rank of ANY caption from the same image
+        target_image_id = image_ids[i]
+        target_caption_indices = image_id_to_indices[target_image_id]
+        
+        # Find the best rank among all captions of this image
+        ranks_for_image = []
+        for target_idx in target_caption_indices:
+            rank = (sorted_indices == target_idx).nonzero(as_tuple=True)[0].item() + 1
+            ranks_for_image.append(rank)
+        
+        best_rank = min(ranks_for_image)  # Best rank among all captions
+        i2t_ranks.append(best_rank)
     
-    # Text-to-image retrieval
+    # Text-to-image retrieval (find rank of the EXACT corresponding image)
     t2i_ranks = []
     for j in tqdm(range(num_samples), desc="Computing T2I ranks"):
-        sim_j = similarities[:, j]
+        sim_j = similarities[:, j]  # Similarities for this caption
         sorted_indices = torch.argsort(sim_j, descending=True)
+        
+        # Find rank of the EXACT corresponding image (not any image with same ID)
+        # For T2I: each caption should retrieve its specific paired image
         rank = (sorted_indices == j).nonzero(as_tuple=True)[0].item() + 1
         t2i_ranks.append(rank)
     
@@ -85,6 +126,15 @@ def compute_retrieval_metrics(image_features, text_features, k_values):
     metrics['mean_recall'] = sum(all_recalls) / len(all_recalls)
     metrics['i2t_median_rank'] = np.median(i2t_ranks)
     metrics['t2i_median_rank'] = np.median(t2i_ranks)
+    
+    # Add diagnostic info
+    unique_images = len(set(image_ids))
+    total_samples = len(image_ids)
+    metrics['unique_images'] = unique_images
+    metrics['total_samples'] = total_samples
+    metrics['avg_captions_per_image'] = total_samples / unique_images
+    
+    print(f"Evaluation stats: {total_samples} samples, {unique_images} unique images, {total_samples/unique_images:.1f} captions/image")
     
     return metrics, similarities
 
@@ -167,7 +217,7 @@ def load_model_from_checkpoint(checkpoint_path, device):
     is_cross_modal = checkpoint['is_cross_modal']
     
     # Import model classes (same as in train.py)
-    from train import MLPProjectionHead, AttentionProjectionHead, CrossModalProjectionHead, create_model
+    from models import create_model
     
     # Get dimensions from state dict
     if is_cross_modal:
@@ -228,8 +278,16 @@ def extract_features(image_head, text_head, data_loader, device, is_cross_modal,
     
     image_features = []
     text_features = []
+    image_ids = []
     
-    for image_emb, text_emb in tqdm(data_loader, desc="Extracting features"):
+    for batch in tqdm(data_loader, desc="Extracting features"):
+        if len(batch) == 3:  # New format with image IDs
+            image_emb, text_emb, img_ids = batch
+            image_ids.extend(img_ids)
+        else:  # Fallback for old format
+            image_emb, text_emb = batch
+            image_ids.extend([None] * len(image_emb))
+        
         if device.type == 'mps':
             # Ensure float32 for MPS compatibility
             image_emb = image_emb.to(device, dtype=torch.float32)
@@ -246,7 +304,7 @@ def extract_features(image_head, text_head, data_loader, device, is_cross_modal,
         image_features.append(img_proj.cpu())
         text_features.append(txt_proj.cpu())
     
-    return torch.cat(image_features, dim=0), torch.cat(text_features, dim=0)
+    return torch.cat(image_features, dim=0), torch.cat(text_features, dim=0), image_ids
 
 
 def main():
@@ -310,9 +368,18 @@ def main():
         sys.exit(1)
     
     print("Using test set for evaluation (~24K samples)")
+    
+    # Try to find metadata file for image IDs
+    test_img_path = Path(config['data']['test_image_embeddings'])
+    metadata_path = test_img_path.parent / "test_metadata.json"  # Look for test metadata
+    if not metadata_path.exists():
+        # Fallback: try original train2017 metadata (contains all image IDs)
+        metadata_path = test_img_path.parent / "train2017_metadata.json"
+    
     eval_dataset = EmbeddingDataset(
         config['data']['test_image_embeddings'],
-        config['data']['test_text_embeddings']
+        config['data']['test_text_embeddings'],
+        metadata_path if metadata_path.exists() else None
     )
     
     # Create data loader with device-optimized settings
@@ -331,14 +398,14 @@ def main():
     
     # Extract features
     print("Extracting features...")
-    image_features, text_features = extract_features(
+    image_features, text_features, image_ids = extract_features(
         image_head, text_head, eval_loader, device, is_cross_modal, pin_memory
     )
     
     # Compute retrieval metrics
     print("Computing retrieval metrics...")
     metrics, similarities = compute_retrieval_metrics(
-        image_features, text_features, config['evaluation']['top_k']
+        image_features, text_features, config['evaluation']['top_k'], image_ids
     )
     
     # Print results

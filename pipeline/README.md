@@ -9,19 +9,21 @@ Train and evaluate projection heads for aligning SigLIP image embeddings with E5
 xclip-siglip/
 ├── pretrain_encoded/          # Put pre-encoded embeddings here
 │   ├── train2017_image_embeddings.pt
-│   ├── train2017_text_embeddings.pt  
+│   ├── train2017_text_embeddings.pt
+│   ├── train2017_metadata.json       # REQUIRED for proper splitting
 │   ├── val2017_image_embeddings.pt
 │   └── val2017_text_embeddings.pt
 └── pipeline/                  # This directory
     ├── train.py
     ├── evaluate.py
     ├── split_train_data.py
+    ├── models.py              # Model definitions
     └── configs/
 ```
 
 **Essential Steps:**
-1. **Get pre-encoded embeddings** (from `../encoding.py`)
-2. **Split data**: `python split_train_data.py` (REQUIRED before training)
+1. **Get pre-encoded embeddings** (from `../encoding.py`) - ensures metadata is created
+2. **Split data**: `python split_train_data.py` (REQUIRED - creates image-level splits)
 3. **Train**: `python train.py configs/quick_test.yaml`
 4. **Evaluate**: `python evaluate.py configs/quick_test.yaml`
 
@@ -36,11 +38,12 @@ graph TB
     E --> F{Early Stop?}
     F -->|No| D
     F -->|Yes| G[Save Trained Models]
-    G --> H[Evaluation Pipeline]
-    H --> I[Top-k Retrieval]
-    H --> J[Embedding Visualization]
-    I --> K[Metrics Report]
-    J --> L[t-SNE/PCA Plots]
+    G --> H[Generate Training Curves]
+    H --> I[Evaluation Pipeline]
+    I --> J[Top-k Retrieval]
+    I --> K[Embedding Visualization]
+    J --> L[Metrics Report]
+    K --> M[t-SNE/PCA Plots]
 ```
 
 ## Quick Start
@@ -81,21 +84,26 @@ model:
 
 ## Data Splits (After `split_train_data.py`)
 
-The pipeline automatically creates proper ML splits:
+⚠️ **CRITICAL**: The pipeline uses **image-level splitting** to prevent data leakage.
 
-- **Training** (~95K): Model training (`train_*.pt`)
-- **Validation** (~5K): Early stopping (`val_*.pt`)  
-- **Test** (~24K): Final evaluation (`test_*.pt`)
+**Image-Level Splits:**
+- **Training** (~95K samples from ~19K images): Model training (`train_*.pt`)
+- **Validation** (~5K samples from ~1K images): Early stopping (`val_*.pt`)  
+- **Test** (~24K samples from ~5K images): Final evaluation (`test_*.pt`)
+
+**No Data Leakage**: Train and test contain completely separate images.
 
 **Data Flow:**
 ```
-Raw COCO → encoding.py → train2017_*.pt, val2017_*.pt
+Raw COCO → encoding.py → train2017_*.pt + metadata.json
               ↓
-         split_train_data.py → train_*.pt, val_*.pt, test_*.pt
+         split_train_data.py → IMAGE-LEVEL split
+              ↓
+     train_*.pt, val_*.pt, test_*.pt + metadata
               ↓
           train.py (uses train + val)
               ↓
-         evaluate.py (uses test only)
+         evaluate.py (uses test only with proper COCO metrics)
 ```
 
 ## Custom Model Design
@@ -137,18 +145,23 @@ python evaluate.py my_model.yaml
 ## Results
 
 **Evaluation Metrics:**
-- **Recall@K**: R@1, R@5, R@10, R@50 for both I2T and T2I retrieval
+- **I2T Recall@K**: Finds best rank among all captions of same image (COCO-aware)
+- **T2I Recall@K**: Finds rank of exact corresponding image (standard)
 - **Visualizations**: t-SNE and PCA plots of learned embedding space
-- **Test Set**: Evaluated on ~24K held-out samples
+- **Test Set**: Evaluated on ~24K held-out samples from separate images
+- **Data Integrity**: No leakage between train/test image sets
 
 **Output Files:**
 - `results/config_name/best_model.pt` - Trained model
+- `results/config_name/training_curves.png` - Training and validation loss plot
+- `results/config_name/loss_history.json` - Loss values for each epoch
 - `results/config_name/evaluation_results/` - Metrics and visualizations
 
 ## Troubleshooting
 
 **"Error: Test set not found"** → Run `python split_train_data.py` first  
 **"Error: Missing required data files"** → Check `pretrain_encoded/` has the required `.pt` files  
+**"Error: No image_ids in metadata"** → Run `../encoding.py` to create metadata.json  
 **MPS errors on Apple Silicon** → Pipeline handles this automatically
 
 **Device Support:**
@@ -167,7 +180,7 @@ done
 
 **To add a new projection head (e.g., "transformer"):**
 
-1. **Define model class in `train.py`**:
+1. **Define model class in `models.py`**:
 ```python
 class TransformerProjectionHead(nn.Module):
     def __init__(self, input_dim, output_dim, num_layers, num_heads, dropout=0.1):
@@ -184,7 +197,7 @@ class TransformerProjectionHead(nn.Module):
         return F.normalize(self.projection(x), dim=-1)
 ```
 
-2. **Update `create_model()` function in `train.py`**:
+2. **Update `create_model()` function in `models.py`**:
 ```python
 elif model_type == 'transformer':
     image_head = TransformerProjectionHead(
@@ -221,3 +234,22 @@ metrics['map@10'] = compute_map_at_k(similarities, k=10)
 ```
 
 2. **The metric will automatically appear in results**
+
+## Important Notes
+
+### Data Integrity
+- ✅ **Image-level splitting**: No images appear in both train and test
+- ✅ **Proper COCO evaluation**: I2T considers all captions of same image
+- ✅ **Accurate T2I metrics**: Finds rank of exact corresponding image
+
+### Code Organization  
+- **`models.py`**: All projection head definitions and loss functions
+- **`train.py`**: Training logic only
+- **`evaluate.py`**: Evaluation with proper COCO handling
+- **`split_train_data.py`**: Image-level data splitting
+
+### Performance Notes
+- Lower T2I scores are expected (now accurate, not inflated)
+- I2T scores benefit from COCO's multiple captions per image
+- Proper data splits ensure realistic generalization metrics
+- Training curves automatically saved to monitor convergence and overfitting

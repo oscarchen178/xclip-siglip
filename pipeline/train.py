@@ -20,6 +20,10 @@ import json
 from tqdm import tqdm
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
+# Import model definitions
+from models import siglip_loss, create_model
 
 
 class EmbeddingDataset(Dataset):
@@ -36,164 +40,53 @@ class EmbeddingDataset(Dataset):
         return self.image_embeddings[idx], self.text_embeddings[idx]
 
 
-class MLPProjectionHead(nn.Module):
-    """MLP projection head."""
-    def __init__(self, input_dim, output_dim, hidden_dim, dropout=0.1):
-        super().__init__()
-        self.projection = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, output_dim),
-            nn.LayerNorm(output_dim)
-        )
-    
-    def forward(self, x):
-        return F.normalize(self.projection(x), dim=-1)
+# Model definitions moved to models.py
 
 
-class AttentionProjectionHead(nn.Module):
-    """Attention-based projection head."""
-    def __init__(self, input_dim, output_dim, hidden_dim, num_heads, num_layers, dropout=0.1):
-        super().__init__()
-        
-        # Attention layers
-        self.attention_layers = nn.ModuleList([
-            nn.MultiheadAttention(input_dim, num_heads, dropout=dropout, batch_first=True)
-            for _ in range(num_layers)
-        ])
-        self.layer_norms = nn.ModuleList([nn.LayerNorm(input_dim) for _ in range(num_layers)])
-        
-        # Final projection
-        self.final_proj = nn.Sequential(
-            nn.Linear(input_dim, output_dim),
-            nn.LayerNorm(output_dim)
-        )
+def plot_training_curves(train_losses, val_losses, output_dir):
+    """Plot and save training curves."""
+    plt.figure(figsize=(10, 6))
     
-    def forward(self, x):
-        # x: (batch_size, input_dim) -> (batch_size, 1, input_dim)
-        x = x.unsqueeze(1)
-        
-        for attn, norm in zip(self.attention_layers, self.layer_norms):
-            attn_out, _ = attn(x, x, x)
-            x = norm(x + attn_out)
-        
-        # Remove sequence dimension and project
-        x = x.squeeze(1)
-        output = self.final_proj(x)
-        return F.normalize(output, dim=-1)
-
-
-class CrossModalProjectionHead(nn.Module):
-    """Cross-modal projection head."""
-    def __init__(self, image_dim, text_dim, output_dim, hidden_dim, num_heads, dropout=0.1):
-        super().__init__()
-        
-        # Project to common space
-        self.image_proj = nn.Linear(image_dim, hidden_dim)
-        self.text_proj = nn.Linear(text_dim, hidden_dim)
-        
-        # Cross-attention
-        self.img_to_txt_attn = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
-        self.txt_to_img_attn = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
-        
-        # Layer norms
-        self.img_norm = nn.LayerNorm(hidden_dim)
-        self.txt_norm = nn.LayerNorm(hidden_dim)
-        
-        # Final projections
-        self.img_final = nn.Sequential(nn.Linear(hidden_dim, output_dim), nn.LayerNorm(output_dim))
-        self.txt_final = nn.Sequential(nn.Linear(hidden_dim, output_dim), nn.LayerNorm(output_dim))
+    epochs = range(1, len(train_losses) + 1)
     
-    def forward(self, image_emb, text_emb):
-        # Project and add sequence dimension
-        img_proj = self.image_proj(image_emb).unsqueeze(1)  # (B, 1, H)
-        txt_proj = self.text_proj(text_emb).unsqueeze(1)    # (B, 1, H)
-        
-        # Cross-attention
-        img_attn, _ = self.img_to_txt_attn(img_proj, txt_proj, txt_proj)
-        txt_attn, _ = self.txt_to_img_attn(txt_proj, img_proj, img_proj)
-        
-        # Residual + norm
-        img_out = self.img_norm(img_proj + img_attn).squeeze(1)
-        txt_out = self.txt_norm(txt_proj + txt_attn).squeeze(1)
-        
-        # Final projection
-        img_final = F.normalize(self.img_final(img_out), dim=-1)
-        txt_final = F.normalize(self.txt_final(txt_out), dim=-1)
-        
-        return img_final, txt_final
-
-
-def siglip_loss(image_features, text_features, temperature=0.05):
-    """SigLIP loss function."""
-    batch_size = image_features.shape[0]
+    plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2)
+    plt.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2)
     
-    # Compute similarity matrix
-    logits = torch.matmul(image_features, text_features.T) / temperature
+    plt.title('Training and Validation Loss Curves', fontsize=14, fontweight='bold')
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.legend(fontsize=12)
+    plt.grid(True, alpha=0.3)
     
-    # Create labels (positive pairs are on diagonal)
-    labels = torch.arange(batch_size, device=logits.device)
+    # Add best epoch marker
+    best_epoch = val_losses.index(min(val_losses)) + 1
+    best_val_loss = min(val_losses)
+    plt.axvline(x=best_epoch, color='green', linestyle='--', alpha=0.7, 
+                label=f'Best Epoch ({best_epoch})')
+    plt.scatter([best_epoch], [best_val_loss], color='green', s=100, zorder=5)
     
-    # Compute cross-entropy loss for both directions
-    loss_i2t = F.cross_entropy(logits, labels)
-    loss_t2i = F.cross_entropy(logits.T, labels)
+    plt.legend(fontsize=12)
+    plt.tight_layout()
     
-    return (loss_i2t + loss_t2i) / 2
-
-
-def create_model(config, image_dim, text_dim):
-    """Create projection heads based on config."""
-    model_config = config['model']
-    model_type = model_config['type']
+    # Save plot
+    plot_path = output_dir / 'training_curves.png'
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
     
-    if model_type == 'mlp':
-        image_head = MLPProjectionHead(
-            image_dim, 
-            model_config['output_dim'],
-            model_config['hidden_dim'],
-            model_config['dropout']
-        )
-        text_head = MLPProjectionHead(
-            text_dim,
-            model_config['output_dim'], 
-            model_config['hidden_dim'],
-            model_config['dropout']
-        )
-        return image_head, text_head, False
-        
-    elif model_type == 'attention':
-        image_head = AttentionProjectionHead(
-            image_dim,
-            model_config['output_dim'],
-            model_config['hidden_dim'],
-            model_config['num_heads'],
-            model_config['num_layers'],
-            model_config['dropout']
-        )
-        text_head = AttentionProjectionHead(
-            text_dim,
-            model_config['output_dim'],
-            model_config['hidden_dim'], 
-            model_config['num_heads'],
-            model_config['num_layers'],
-            model_config['dropout']
-        )
-        return image_head, text_head, False
-        
-    elif model_type == 'cross_modal':
-        cross_head = CrossModalProjectionHead(
-            image_dim,
-            text_dim,
-            model_config['output_dim'],
-            model_config['hidden_dim'],
-            model_config['num_heads'],
-            model_config['dropout']
-        )
-        return cross_head, None, True
+    print(f"Training curves saved to: {plot_path}")
     
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    # Also save loss history as JSON for later analysis
+    loss_history = {
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'best_epoch': best_epoch,
+        'best_val_loss': best_val_loss
+    }
+    
+    with open(output_dir / 'loss_history.json', 'w') as f:
+        json.dump(loss_history, f, indent=2)
+    
+    print(f"Loss history saved to: {output_dir / 'loss_history.json'}")
 
 
 def train_epoch(image_head, text_head, train_loader, optimizer, device, config, is_cross_modal, pin_memory):
@@ -386,6 +279,10 @@ def main():
     best_val_loss = float('inf')
     patience_counter = 0
     
+    # Track losses for plotting
+    train_losses = []
+    val_losses = []
+    
     print("Starting training...")
     for epoch in range(config['training']['num_epochs']):
         # Train
@@ -393,6 +290,10 @@ def main():
         
         # Validate
         val_loss = validate(image_head, text_head, val_loader, device, config, is_cross_modal, pin_memory)
+        
+        # Store losses for plotting
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
         
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train: {train_loss:.4f}, Val: {val_loss:.4f}")
         
@@ -424,6 +325,10 @@ def main():
     
     print(f"Training completed! Best val loss: {best_val_loss:.4f}")
     print(f"Model saved to: {output_dir / 'best_model.pt'}")
+    
+    # Plot and save training curves
+    print("Generating training curves...")
+    plot_training_curves(train_losses, val_losses, output_dir)
 
 
 if __name__ == "__main__":
