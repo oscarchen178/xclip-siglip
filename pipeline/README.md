@@ -17,16 +17,22 @@ xclip-siglip/
     ├── train.py
     ├── evaluate.py
     ├── split_train_data.py
+    ├── tune_hyperparams.py    # Hyperparameter tuning (NEW!)
     ├── models.py              # Model definitions
-    ├── losses.py              # Loss functions
+    ├── losses.py              # Loss functions  
+    ├── metrics.py             # Evaluation metrics
+    ├── dataset.py             # Dataset handling
+    ├── optuna_config.yaml     # Tuning configuration
+    ├── HYPERPARAMETER_TUNING.md  # Detailed tuning guide
     └── configs/
 ```
 
 **Essential Steps:**
 1. **Get pre-encoded embeddings** (from `../encoding.py`) - ensures metadata is created
-2. **Split data**: `python split_train_data.py` (REQUIRED - creates image-level splits)
-3. **Train**: `python train.py configs/quick_test.yaml`
-4. **Evaluate**: `python evaluate.py configs/quick_test.yaml`
+2. **Split data**: `python split_train_data.py` (REQUIRED - creates image-level splits + tuning subset)
+3. **Hyperparameter tuning** (optional): `python tune_hyperparams.py` 
+4. **Train**: `python train.py configs/quick_test.yaml` or `python train.py best_hyperparams_config.yaml`
+5. **Evaluate**: `python evaluate.py configs/quick_test.yaml`
 
 ## Pipeline Workflow
 
@@ -46,6 +52,122 @@ graph TB
     J --> L[Metrics Report]
     K --> M[t-SNE/PCA Plots]
 ```
+
+## Hyperparameter Tuning (NEW!)
+
+**Automated hyperparameter optimization using Optuna:**
+
+### Quick Start Hyperparameter Tuning
+```bash
+# 1. Create tuning subset (if not already done)
+python split_train_data.py
+
+# 2. Run hyperparameter tuning (uses 100K subset for speed)
+python tune_hyperparams.py
+
+# 3. Use best results for final training
+python train.py best_hyperparams_config.yaml
+```
+
+### Configuration (`optuna_config.yaml`)
+```yaml
+# Study settings
+study_name: "xclip_siglip_tuning"
+n_trials: 100                    # Number of trials to run
+n_jobs: 3                        # Parallel trials (adjust for GPU memory)
+storage: "sqlite:///optuna_study.db"  # Persistent results
+
+# Search space configuration
+search_space:
+  # Model architecture
+  head_type:
+    type: categorical
+    choices: ['siglip', 'clip', 'attention', 'mlp']
+  
+  output_dim:
+    type: categorical
+    choices: [256, 512, 768, 1024]
+  
+  dropout:
+    type: float
+    low: 0.0
+    high: 0.3
+  
+  # Loss configuration
+  loss_type:
+    type: categorical
+    choices: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
+  
+  temperature:
+    type: float
+    low: 0.01
+    high: 0.2
+    log: true
+  
+  # Training hyperparameters
+  batch_size:
+    type: categorical
+    choices: [2048, 4096, 8192]
+  
+  learning_rate:
+    type: float
+    low: 1.0e-5
+    high: 1.0e-2
+    log: true
+  
+  weight_decay:
+    type: float
+    low: 1.0e-6
+    high: 1.0e-1
+    log: true
+```
+
+### Key Features
+- **Fast tuning**: Uses 100K sample subset instead of full 473K dataset
+- **Parallel execution**: Multiple trials run simultaneously (n_jobs=3)
+- **Persistent results**: Trials saved to database, can resume if interrupted
+- **YAML-based configuration**: Easy to modify search spaces
+- **Multiple architectures**: Compares SigLIP, CLIP, Attention, and MLP heads
+- **Multiple losses**: Tests sigmoid, softmax, and queue-based InfoNCE losses
+
+### Expected Results
+- **Typical runtime**: ~1-2 hours for 100 trials on RTX 4090
+- **Performance**: Usually achieves 25-40% R@1 on final training
+- **Best configuration saved**: `best_hyperparams_config.yaml` created automatically
+
+### Advanced Usage
+
+**Resume interrupted tuning:**
+```bash
+# Just run again - automatically resumes from database
+python tune_hyperparams.py
+```
+
+**New study with different search space:**
+```yaml
+# In optuna_config.yaml
+study_name: "focused_attention_tuning"  # New study name
+search_space:
+  head_type:
+    choices: ['attention']  # Focus on best architecture
+  output_dim:
+    choices: [768, 1024, 1536]  # Explore higher dimensions
+```
+
+**Check results:**
+```python
+import optuna
+study = optuna.load_study("xclip_siglip_tuning", storage="sqlite:///optuna_study.db")
+print(f"Best R@1: {study.best_value:.4f}")
+print(f"Best params: {study.best_params}")
+```
+
+### Memory Requirements
+- **n_jobs=1**: ~11GB RAM + ~8GB VRAM per trial
+- **n_jobs=2**: ~22GB RAM + ~16GB VRAM  
+- **n_jobs=3**: ~33GB RAM + ~24GB VRAM
+- **RTX 4090 + 32GB+ RAM**: Can handle n_jobs=2-3
+- **RTX 3080 + 16GB RAM**: Use n_jobs=1
 
 ## Quick Start
 
@@ -138,11 +260,13 @@ loss:
 ⚠️ **CRITICAL**: The pipeline uses **image-level splitting** to prevent data leakage.
 
 **Image-Level Splits:**
-- **Training** (~95K samples from ~19K images): Model training (`train_*.pt`)
+- **Training** (~473K samples from ~95K images): Full dataset for final training (`train_*.pt`)
+- **Training Subset** (~100K samples): Fast hyperparameter tuning (`train_tuning_*.pt`)
 - **Validation** (~5K samples from ~1K images): Early stopping (`val_*.pt`)  
 - **Test** (~24K samples from ~5K images): Final evaluation (`test_*.pt`)
 
 **No Data Leakage**: Train and test contain completely separate images.
+**Tuning Subset**: Random 100K samples from training set for fast hyperparameter exploration.
 
 **Data Flow:**
 ```
@@ -210,10 +334,26 @@ python evaluate.py my_model.yaml
 
 ## Troubleshooting
 
+### General Issues
 **"Error: Test set not found"** → Run `python split_train_data.py` first  
 **"Error: Missing required data files"** → Check `pretrain_encoded/` has the required `.pt` files  
 **"Error: No image_ids in metadata"** → Run `../encoding.py` to create metadata.json  
 **MPS errors on Apple Silicon** → Pipeline handles this automatically
+
+### Hyperparameter Tuning Issues
+**"CategoricalDistribution does not support dynamic value space"** → Parameter ranges changed between studies. Either:
+- Use same study name with identical parameter ranges, OR
+- Use new study name for different parameter ranges
+
+**"DataLoader worker exited unexpectedly"** → Reduce `n_jobs` or `batch_size` in `optuna_config.yaml`
+
+**"RuntimeError: mat1 and mat2 shapes cannot be multiplied"** → Fixed automatically with queue reinitialization
+
+**Process killed/OOM** → Reduce `n_jobs` (try n_jobs=1 for 16GB RAM, n_jobs=2 for 32GB RAM)
+
+**"Trial X failed with value None"** → Normal for some trials, tuning continues. Check for pattern in failed trials.
+
+**Very slow trials (>5 minutes each)** → Check if using tuning subset files (`train_tuning_*.pt`). If not, run `python split_train_data.py`
 
 **Device Support:**
 - CUDA (NVIDIA), MPS (Apple Silicon), CPU - automatically detected
