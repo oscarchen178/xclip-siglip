@@ -127,6 +127,35 @@ def split_train_data(test_ratio=0.2, seed=42):
     with open(output_dir / "train_metadata.json", 'w') as f:
         json.dump(train_metadata, f, indent=2)
     
+    # Create tuning subset from TRAIN split only (simple random sampling)
+    TUNING_SUBSET_SIZE = 100000
+    if len(train_images) > TUNING_SUBSET_SIZE:
+        print(f"Creating tuning subset ({TUNING_SUBSET_SIZE:,} samples from train split)...")
+        
+        # Simple random sampling from train set (not image-level, just for tuning speed)
+        np.random.seed(123)  # Fixed seed for reproducible tuning subset
+        tuning_indices = np.random.choice(len(train_images), TUNING_SUBSET_SIZE, replace=False)
+        
+        tuning_images = train_images[tuning_indices]
+        tuning_texts = train_texts[tuning_indices]
+        tuning_image_ids = [train_image_ids[i] for i in tuning_indices]
+        
+        tuning_metadata = {
+            'dataset_name': 'train_tuning',
+            'total_pairs': len(tuning_images),
+            'unique_images': len(set(tuning_image_ids)),
+            'image_ids': tuning_image_ids,
+            'source': f'random subset of {TUNING_SUBSET_SIZE:,} samples from train split for hyperparameter tuning'
+        }
+        
+        # Save tuning subset
+        torch.save(tuning_images, output_dir / "train_tuning_image_embeddings.pt")
+        torch.save(tuning_texts, output_dir / "train_tuning_text_embeddings.pt") 
+        with open(output_dir / "train_tuning_metadata.json", 'w') as f:
+            json.dump(tuning_metadata, f, indent=2)
+        
+        print(f"✅ Tuning subset created: {TUNING_SUBSET_SIZE:,} samples from train split only")
+    
     # Save test split  
     torch.save(test_images, output_dir / "test_image_embeddings.pt")
     torch.save(test_texts, output_dir / "test_text_embeddings.pt")
@@ -146,10 +175,11 @@ def split_train_data(test_ratio=0.2, seed=42):
     print(f"Validation: Use existing val2017_* files (~5K samples)")
     print()
     print("Files created:")
-    print("  train_image_embeddings.pt / train_text_embeddings.pt")
+    print("  train_image_embeddings.pt / train_text_embeddings.pt (full train set)")
+    print("  train_tuning_image_embeddings.pt / train_tuning_text_embeddings.pt (100K subset for tuning)")
     print("  val_image_embeddings.pt / val_text_embeddings.pt") 
     print("  test_image_embeddings.pt / test_text_embeddings.pt")
-    print("  train_metadata.json / test_metadata.json (with image IDs)")
+    print("  train_metadata.json / test_metadata.json / train_tuning_metadata.json (with image IDs)")
     print()
     print("✅ No data leakage - completely separate images in train/test!")
     print("✅ Config files are already set up to use these files!")

@@ -1,28 +1,79 @@
 # Optuna Hyperparameter Tuning Configuration
 
 study_name: "xclip_siglip_tuning"
-n_trials: 100
+n_trials: 150
 timeout: null  # seconds, or null for no timeout
-storage: null  # SQLite URL, or null for in-memory
+storage: "sqlite:///optuna_study.db"  # Persistent SQLite database
+n_jobs: 3  # Can handle 3 jobs with 100K tuning subset (~7GB total)
 
-# Search space is defined in tune_hyperparams.py:
-# - head_type: ['siglip', 'clip', 'attention', 'mlp']  
-# - output_dim: [256, 512, 768, 1024]
-# - dropout: [0.0, 0.3] (float)
-# - loss_type: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
-# - temperature: [0.01, 0.2] (log scale)
-# - batch_size: [1024, 2048, 4096]
-# - learning_rate: [1e-5, 1e-2] (log scale)
-# - weight_decay: [1e-6, 1e-1] (log scale)
-# 
-# Model-specific parameters:
-# - hidden_dim: [512, 1024, 2048] (for clip/attention)
-# - learnable_temp: [True, False] (for clip)
-# - num_heads: [4, 8, 16] (for attention)
-# - num_layers: [1, 2, 3] (for attention)
-# - queue_size: [2048, 4096, 8192] (for queue_infonce)
+# Search space configuration
+search_space:
+  # Model architecture
+  head_type:
+    type: categorical
+    choices: ['siglip', 'clip', 'attention', 'mlp']
+  
+  output_dim:
+    type: categorical
+    choices: [256, 512, 768, 1024]  # Keep original range for compatibility
+  
+  dropout:
+    type: float
+    low: 0.0
+    high: 0.3
+  
+  # Loss configuration
+  loss_type:
+    type: categorical
+    choices: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
+  
+  temperature:
+    type: float
+    low: 0.01
+    high: 0.2
+    log: true
+  
+  # Training hyperparameters
+  batch_size:
+    type: categorical
+    choices: [2048, 4096, 8192]  # Keep original range for compatibility
+  
+  learning_rate:
+    type: float
+    low: 1.0e-5
+    high: 1.0e-2
+    log: true
+  
+  weight_decay:
+    type: float
+    low: 1.0e-6
+    high: 1.0e-1
+    log: true
+  
+  # Model-specific parameters (conditional)
+  hidden_dim:  # for clip/attention/mlp
+    type: categorical
+    choices: [512, 1024, 2048]
+  
+  learnable_temp:  # for clip only
+    type: categorical
+    choices: [true, false]
+  
+  num_heads:  # for attention only
+    type: categorical
+    choices: [4, 8, 16]  # Keep original range for compatibility
+  
+  num_layers:  # for attention only
+    type: categorical
+    choices: [1, 2, 3]
+  
+  queue_size:  # for queue_infonce only
+    type: categorical
+    choices: [2048, 4096, 8192]
 
-# ASHA pruner settings (configured in code):
-# - min_resource: 3 epochs
-# - reduction_factor: 3
-# - min_early_stopping_rate: 2
+# ASHA pruner settings
+pruner:
+  type: "SuccessiveHalvingPruner"
+  min_resource: 2
+  reduction_factor: 4
+  min_early_stopping_rate: 1

@@ -130,8 +130,8 @@ class QueueInfoNCELoss(nn.Module):
         if img_ids is not None:
             img_ids = img_ids.to(img_z.device)
         
-        # Initialize queue if needed
-        if self.queue is None:
+        # Initialize queue if needed or if feature dimension has changed
+        if self.queue is None or self.queue.emb.size(1) != img_z.size(1):
             self._init_queue(img_z.device, img_z.size(1))
         
         # Move queue to correct device if needed
@@ -236,6 +236,12 @@ def blip_loss(image_features, text_features, momentum_image_features, momentum_t
 
 # Global loss instances for stateful losses
 _loss_instances = {}
+
+
+def clear_loss_instances():
+    """Clear cached loss instances. Useful for hyperparameter tuning."""
+    global _loss_instances
+    _loss_instances.clear()
 
 
 def get_loss_instance(loss_type, config, device):

@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from models import SigLIPProjectionHead, CLIPProjectionHead, AttentionProjectionHead, MLPProjectionHead
-from losses import compute_loss
+from losses import compute_loss, clear_loss_instances
 from metrics import compute_validation_metrics
 from dataset import create_train_dataset, create_eval_dataset
 
@@ -76,22 +76,30 @@ def create_projection_heads(trial, image_dim: int, text_dim: int, device: torch.
     return image_head, text_head
 
 
-def create_config(trial) -> Dict[str, Any]:
-    """Create training config based on trial suggestions."""
-    head_type = trial.suggest_categorical('head_type', ['siglip', 'clip', 'attention', 'mlp'])
-    
+def create_config(trial, search_space) -> Dict[str, Any]:
+    """Create training config based on trial suggestions from search space config."""
     # Model configuration
-    output_dim = trial.suggest_categorical('output_dim', [256, 512, 768, 1024])
-    dropout = trial.suggest_float('dropout', 0.0, 0.3)
+    head_type = trial.suggest_categorical('head_type', search_space['head_type']['choices'])
+    output_dim = trial.suggest_categorical('output_dim', search_space['output_dim']['choices'])
+    dropout = trial.suggest_float('dropout', search_space['dropout']['low'], search_space['dropout']['high'])
     
     # Loss configuration
-    loss_type = trial.suggest_categorical('loss_type', ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce'])
-    temperature = trial.suggest_float('temperature', 0.01, 0.2, log=True)
+    loss_type = trial.suggest_categorical('loss_type', search_space['loss_type']['choices'])
+    temperature = trial.suggest_float('temperature', 
+                                    search_space['temperature']['low'], 
+                                    search_space['temperature']['high'], 
+                                    log=search_space['temperature']['log'])
     
     # Training hyperparameters
-    batch_size = trial.suggest_categorical('batch_size', [1024, 2048, 4096])
-    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
-    weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-1, log=True)
+    batch_size = trial.suggest_categorical('batch_size', search_space['batch_size']['choices'])
+    learning_rate = trial.suggest_float('learning_rate', 
+                                      search_space['learning_rate']['low'], 
+                                      search_space['learning_rate']['high'], 
+                                      log=search_space['learning_rate']['log'])
+    weight_decay = trial.suggest_float('weight_decay', 
+                                     search_space['weight_decay']['low'], 
+                                     search_space['weight_decay']['high'], 
+                                     log=search_space['weight_decay']['log'])
     
     config = {
         'model': {
@@ -113,17 +121,17 @@ def create_config(trial) -> Dict[str, Any]:
     
     # Add model-specific params
     if head_type in ['clip', 'attention', 'mlp']:
-        config['model']['hidden_dim'] = trial.suggest_categorical('hidden_dim', [512, 1024, 2048])
+        config['model']['hidden_dim'] = trial.suggest_categorical('hidden_dim', search_space['hidden_dim']['choices'])
     
     if head_type == 'clip':
-        config['model']['learnable_temp'] = trial.suggest_categorical('learnable_temp', [True, False])
+        config['model']['learnable_temp'] = trial.suggest_categorical('learnable_temp', search_space['learnable_temp']['choices'])
     
     if head_type == 'attention':
-        config['model']['num_heads'] = trial.suggest_categorical('num_heads', [4, 8, 16])
-        config['model']['num_layers'] = trial.suggest_categorical('num_layers', [1, 2, 3])
+        config['model']['num_heads'] = trial.suggest_categorical('num_heads', search_space['num_heads']['choices'])
+        config['model']['num_layers'] = trial.suggest_categorical('num_layers', search_space['num_layers']['choices'])
     
     if loss_type == 'queue_infonce':
-        config['loss']['queue_size'] = trial.suggest_categorical('queue_size', [2048, 4096, 8192])
+        config['loss']['queue_size'] = trial.suggest_categorical('queue_size', search_space['queue_size']['choices'])
         config['loss']['feature_dim'] = config['model']['output_dim']
     
     return config
@@ -160,89 +168,112 @@ def train_epoch_simple(image_head, text_head, train_loader, optimizer, config, d
     return total_loss / len(train_loader)
 
 
-def objective(trial):
-    """Optuna objective function."""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-    
-    # Create datasets
-    train_dataset = create_train_dataset()
-    val_dataset = create_eval_dataset("../pretrain_encoded", "val_image_embeddings.pt", "val_text_embeddings.pt", "val_metadata.json")
-    
-    # Get dimensions
-    image_dim = train_dataset.image_embeddings.shape[1]
-    text_dim = train_dataset.text_embeddings.shape[1]
-    
-    # Create config and models
-    config = create_config(trial)
-    image_head, text_head = create_projection_heads(trial, image_dim, text_dim, device)
-    
-    # Create data loaders
-    batch_size = config['training']['batch_size']
-    num_workers = 4 if device.type != 'mps' else 0
-    pin_memory = device.type == 'cuda'
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
-                             num_workers=num_workers, pin_memory=pin_memory)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
-                           num_workers=num_workers, pin_memory=pin_memory)
-    
-    # Create optimizer
-    optimizer = torch.optim.AdamW(
-        list(image_head.parameters()) + list(text_head.parameters()),
-        lr=config['training']['learning_rate'],
-        weight_decay=config['training']['weight_decay']
-    )
-    
-    # Training loop with early reporting for ASHA
-    best_val_r1 = 0.0
-    patience_counter = 0
-    max_patience = 2  # Reduced patience for faster pruning
-    
-    for epoch in range(8):  # Reduced epochs for faster tuning
-        # Train
-        _ = train_epoch_simple(image_head, text_head, train_loader, optimizer, config, device)
+def create_objective_function(tuning_config):
+    """Create objective function with access to tuning config."""
+    def objective(trial):
+        """Optuna objective function."""
+        # Clear cached loss instances to ensure fresh state for each trial
+        clear_loss_instances()
         
-        # Validate (fast R@1 for ASHA)
-        val_metrics = compute_validation_metrics(image_head, text_head, val_loader, device, fast_mode=True)
-        val_r1 = val_metrics['val_recall_1']
+        device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
         
-        # Report intermediate value for pruning
-        trial.report(val_r1, epoch)
+        # Create datasets (use tuning subset for faster hyperparameter search)
+        train_dataset = create_train_dataset("../pretrain_encoded", "train_tuning_image_embeddings.pt", "train_tuning_text_embeddings.pt", "train_tuning_metadata.json")
+        val_dataset = create_eval_dataset("../pretrain_encoded", "val_image_embeddings.pt", "val_text_embeddings.pt", "val_metadata.json")
         
-        # Check if trial should be pruned
-        if trial.should_prune():
-            raise optuna.TrialPruned()
+        # Get dimensions
+        image_dim = train_dataset.image_embeddings.shape[1]
+        text_dim = train_dataset.text_embeddings.shape[1]
         
-        # Early stopping
-        if val_r1 > best_val_r1:
-            best_val_r1 = val_r1
-            patience_counter = 0
-            # --- save model & cfg ---
-            ckpt_dir = Path("checkpoints") / f"{trial.number:05d}"
-            ckpt_dir.mkdir(parents=True, exist_ok=True)
-            torch.save({"model": image_head.state_dict(),
-                        "text_model": text_head.state_dict()},
-                       ckpt_dir / "best_model.pt")
-            yaml.safe_dump(config, open(ckpt_dir / "cfg.yaml", "w"))
-        else:
-            patience_counter += 1
+        # Create config and models
+        config = create_config(trial, tuning_config['search_space'])
+        image_head, text_head = create_projection_heads(trial, image_dim, text_dim, device)
+        
+        # Create data loaders
+        batch_size = config['training']['batch_size']
+        num_workers = 4 if device.type != 'mps' else 0
+        pin_memory = device.type == 'cuda'
+        
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
+                                 num_workers=num_workers, pin_memory=pin_memory)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
+                               num_workers=num_workers, pin_memory=pin_memory)
+        
+        # Create optimizer
+        optimizer = torch.optim.AdamW(
+            list(image_head.parameters()) + list(text_head.parameters()),
+            lr=config['training']['learning_rate'],
+            weight_decay=config['training']['weight_decay']
+        )
+        
+        # Training loop with early reporting for ASHA
+        best_val_r1 = 0.0
+        patience_counter = 0
+        max_patience = 2  # Reduced patience for faster pruning
+        
+        for epoch in range(8):  # Reduced epochs for faster tuning
+            # Train
+            _ = train_epoch_simple(image_head, text_head, train_loader, optimizer, config, device)
             
-        if patience_counter >= max_patience:
-            break
+            # Validate (fast R@1 for ASHA)
+            val_metrics = compute_validation_metrics(image_head, text_head, val_loader, device, fast_mode=True)
+            val_r1 = val_metrics['val_recall_1']
+            
+            # Report intermediate value for pruning
+            trial.report(val_r1, epoch)
+            
+            # Check if trial should be pruned
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+            
+            # Early stopping
+            if val_r1 > best_val_r1:
+                best_val_r1 = val_r1
+                patience_counter = 0
+                # --- save model & cfg ---
+                ckpt_dir = Path("checkpoints") / f"{trial.number:05d}"
+                ckpt_dir.mkdir(parents=True, exist_ok=True)
+                torch.save({"model": image_head.state_dict(),
+                            "text_model": text_head.state_dict()},
+                           ckpt_dir / "best_model.pt")
+                yaml.safe_dump(config, open(ckpt_dir / "cfg.yaml", "w"))
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= max_patience:
+                break
     
-    return best_val_r1
+        return best_val_r1
+    
+    return objective
 
 
 def main():
     # Load config
     config_path = "optuna_config.yaml"
     
-    # Default config if file doesn't exist
+    # Default config if file doesn't exist (basic version - should use YAML file)
     default_config = {
         'study_name': 'cross_modal_tuning',
         'n_trials': 100,
         'timeout': None,
-        'storage': None
+        'storage': None,
+        'n_jobs': 1,
+        'search_space': {
+            'head_type': {'choices': ['siglip', 'clip', 'attention', 'mlp']},
+            'output_dim': {'choices': [256, 512, 768, 1024]},
+            'dropout': {'low': 0.0, 'high': 0.3},
+            'loss_type': {'choices': ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']},
+            'temperature': {'low': 0.01, 'high': 0.2, 'log': True},
+            'batch_size': {'choices': [2048, 4096, 8192]},
+            'learning_rate': {'low': 1e-5, 'high': 1e-2, 'log': True},
+            'weight_decay': {'low': 1e-6, 'high': 1e-1, 'log': True},
+            'hidden_dim': {'choices': [512, 1024, 2048]},
+            'learnable_temp': {'choices': [True, False]},
+            'num_heads': {'choices': [4, 8, 16]},
+            'num_layers': {'choices': [1, 2, 3]},
+            'queue_size': {'choices': [2048, 4096, 8192]}
+        }
     }
     
     if Path(config_path).exists():
@@ -280,6 +311,7 @@ def main():
     print(f"Starting hyperparameter tuning:")
     print(f"  Study: {tuning_config['study_name']}")
     print(f"  Trials: {tuning_config['n_trials']}")
+    print(f"  Parallel jobs: {tuning_config.get('n_jobs', 1)}")
     print(f"  Storage: {storage_url}")
     device_name = 'CUDA' if torch.cuda.is_available() else 'MPS' if torch.backends.mps.is_available() else 'CPU'
     print(f"  Device: {device_name}")
@@ -287,19 +319,36 @@ def main():
     # Run optimization with progress bar
     start_time = time.time()
     
-    # Create progress bar
-    progress_bar = tqdm(total=tuning_config['n_trials'], desc="Hyperparameter Tuning", unit="trial")
+    # Create progress bar with better formatting for parallel execution
+    progress_bar = tqdm(
+        total=tuning_config['n_trials'], 
+        desc="Hyperparameter Tuning", 
+        unit="trial",
+        position=0,
+        leave=True,
+        dynamic_ncols=True
+    )
     
     def update_progress(study, trial):
         progress_bar.update(1)
         progress_bar.set_postfix({
-            'Best Value': f"{study.best_value:.4f}" if study.best_value else "N/A",
-            'Trial': trial.number + 1
+            'Best': f"{study.best_value:.4f}" if study.best_value else "N/A",
+            'Trial': trial.number + 1,
+            'Jobs': tuning_config.get('n_jobs', 1)
         })
+        
+        # Print trial completion info above progress bar
+        if trial.state.name == 'COMPLETE':
+            tqdm.write(f"Trial {trial.number + 1} completed: value={trial.value:.4f}, params={trial.params}")
+        elif trial.state.name == 'FAIL':
+            tqdm.write(f"Trial {trial.number + 1} failed: {trial.state.name}")
+        elif trial.state.name == 'PRUNED':
+            tqdm.write(f"Trial {trial.number + 1} pruned at step {trial.last_step}")
     
     try:
-        study.optimize(objective, n_trials=tuning_config['n_trials'], timeout=tuning_config['timeout'], 
-                      callbacks=[update_progress])
+        objective_fn = create_objective_function(tuning_config)
+        study.optimize(objective_fn, n_trials=tuning_config['n_trials'], timeout=tuning_config['timeout'], 
+                      n_jobs=tuning_config.get('n_jobs', 1), callbacks=[update_progress])
     except KeyboardInterrupt:
         print("Optimization interrupted by user")
     finally:
