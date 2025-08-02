@@ -29,37 +29,12 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import warnings
 
+from dataset import create_eval_dataset
+
 # Suppress sklearn numerical warnings for cleaner output
 warnings.filterwarnings('ignore', category=RuntimeWarning, module='sklearn')
 
 
-class EmbeddingDataset(Dataset):
-    """Simple dataset for pre-encoded embeddings with image ID support."""
-    def __init__(self, image_path, text_path, metadata_path=None):
-        self.image_embeddings = torch.load(image_path, map_location='cpu')
-        self.text_embeddings = torch.load(text_path, map_location='cpu')
-        
-        # Try to load image IDs from metadata
-        self.image_ids = None
-        if metadata_path and Path(metadata_path).exists():
-            try:
-                with open(metadata_path, 'r') as f:
-                    metadata = json.load(f)
-                self.image_ids = metadata.get('image_ids', None)
-                if self.image_ids:
-                    print(f"Loaded {len(self.image_ids)} image IDs from metadata")
-            except Exception as e:
-                print(f"Warning: Could not load metadata from {metadata_path}: {e}")
-        
-        if self.image_ids is None:
-            print("Warning: No image IDs available - using index-based evaluation")
-            self.image_ids = list(range(len(self.image_embeddings)))
-        
-    def __len__(self):
-        return len(self.image_embeddings)
-    
-    def __getitem__(self, idx):
-        return self.image_embeddings[idx], self.text_embeddings[idx], self.image_ids[idx]
 
 
 def compute_retrieval_metrics(image_features, text_features, k_values, image_ids=None, batch_size=1000):
@@ -388,7 +363,7 @@ def main():
         # Fallback: try original train2017 metadata (contains all image IDs)
         metadata_path = test_img_path.parent / "train2017_metadata.json"
     
-    eval_dataset = EmbeddingDataset(
+    eval_dataset = create_eval_dataset(
         config['data']['test_image_embeddings'],
         config['data']['test_text_embeddings'],
         metadata_path if metadata_path.exists() else None

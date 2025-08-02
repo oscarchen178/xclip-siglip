@@ -14,3 +14,5 @@ pretrain_encoded/
 results/
 __pycache__/
 
+/pipeline/checkpoints
+/pipeline/optuna_results

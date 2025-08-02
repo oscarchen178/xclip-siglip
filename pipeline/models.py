@@ -6,6 +6,7 @@ This module contains all projection head architectures and loss functions
 used in the cross-modal alignment pipeline.
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -140,9 +141,9 @@ class CLIPProjectionHead(nn.Module):
         
         # Learnable temperature parameter (CLIP innovation)
         if learnable_temp:
-            self.logit_scale = nn.Parameter(torch.ones([]) * (1/0.07).log())  # Init to 1/0.07
+            self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1/0.07))  # Init to 1/0.07
         else:
-            self.register_buffer('logit_scale', torch.tensor((1/0.07).log()))
+            self.register_buffer('logit_scale', torch.tensor(math.log(1/0.07)))
     
     def forward(self, x):
         return F.normalize(self.projection(x), dim=-1)

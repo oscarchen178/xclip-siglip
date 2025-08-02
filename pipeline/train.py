@@ -25,20 +25,9 @@ import matplotlib.pyplot as plt
 # Import model and loss definitions
 from models import create_model
 from losses import compute_loss
+from dataset import create_legacy_dataset
 
 
-class EmbeddingDataset(Dataset):
-    """Simple dataset for pre-encoded embeddings."""
-    def __init__(self, image_path, text_path):
-        self.image_embeddings = torch.load(image_path, map_location='cpu')
-        self.text_embeddings = torch.load(text_path, map_location='cpu')
-        assert len(self.image_embeddings) == len(self.text_embeddings)
-        
-    def __len__(self):
-        return len(self.image_embeddings)
-    
-    def __getitem__(self, idx):
-        return self.image_embeddings[idx], self.text_embeddings[idx]
 
 
 # Model definitions moved to models.py
@@ -223,11 +212,11 @@ def main():
     # Create datasets
     print("Using training split for training (~95K samples)")
     print("Using validation split for validation (~5K samples)")
-    train_dataset = EmbeddingDataset(
+    train_dataset = create_legacy_dataset(
         config['data']['train_image_embeddings'],
         config['data']['train_text_embeddings']
     )
-    val_dataset = EmbeddingDataset(
+    val_dataset = create_legacy_dataset(
         config['data']['val_image_embeddings'],
         config['data']['val_text_embeddings']
     )

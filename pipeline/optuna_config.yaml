@@ -1,0 +1,28 @@
+# Optuna Hyperparameter Tuning Configuration
+
+study_name: "cross_modal_tuning_v2"
+n_trials: 100
+timeout: null  # seconds, or null for no timeout
+storage: null  # SQLite URL, or null for in-memory
+
+# Search space is defined in tune_hyperparams.py:
+# - head_type: ['siglip', 'clip', 'attention', 'mlp']  
+# - output_dim: [256, 512, 768, 1024]
+# - dropout: [0.0, 0.3] (float)
+# - loss_type: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
+# - temperature: [0.01, 0.2] (log scale)
+# - batch_size: [256, 512, 1024]
+# - learning_rate: [1e-5, 1e-2] (log scale)
+# - weight_decay: [1e-6, 1e-1] (log scale)
+# 
+# Model-specific parameters:
+# - hidden_dim: [512, 1024, 2048] (for clip/attention)
+# - learnable_temp: [True, False] (for clip)
+# - num_heads: [4, 8, 16] (for attention)
+# - num_layers: [1, 2, 3] (for attention)
+# - queue_size: [2048, 4096, 8192] (for queue_infonce)
+
+# ASHA pruner settings (configured in code):
+# - min_resource: 3 epochs
+# - reduction_factor: 3
+# - min_early_stopping_rate: 2
