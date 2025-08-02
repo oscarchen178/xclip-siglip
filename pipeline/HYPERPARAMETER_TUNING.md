@@ -17,13 +17,13 @@ The hyperparameter tuning system automatically explores combinations of:
 python split_train_data.py
 
 # 2. Run hyperparameter tuning
-python tune_hyperparams.py
+python tune_hyperparams.py optuna_configs/default.yaml
 
 # 3. Use best configuration for final training
-python train.py best_hyperparams_config.yaml
+python train.py optuna_results/best_config.yaml
 ```
 
-## Configuration File (`optuna_config.yaml`)
+## Configuration Files (`optuna_configs/`)
 
 ### Study Settings
 

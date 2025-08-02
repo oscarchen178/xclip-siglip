@@ -1,15 +1,10 @@
-# xclip-siglip
+# SigLIP-E5 Cross-Modal Retrieval
 
+Cross-modal image-text retrieval using SigLIP2 and E5-Mistral encoders on COCO dataset.
 
-## Encoders
+## Quick Start
 
-*Image encoder:* siglip2-giant-opt-patch16-256
-*Text encoder:* E5-mistral-7b-instruct
-
-## Encode the COCO dataset
-
-### Data Setup
-Place your COCO dataset in the following structure:
+### 1. Data Setup
 ```
 data/
 ├── train2017/              # Training images
@@ -19,19 +14,36 @@ data/
     └── captions_val2017.json
 ```
 
-### Usage
+### 2. Install & Encode
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Encode validation set
+# Encode datasets
 python encoding.py data/val2017 data/annotations/captions_val2017.json
-
-# Encode training set
 python encoding.py data/train2017 data/annotations/captions_train2017.json
 ```
 
-### Outputs
+### 3. Train Pipeline
+```bash
+cd pipeline
+python split_train_data.py                    # Split data
+python train.py configs/siglip.yaml           # Train model
+python evaluate.py configs/siglip.yaml        # Evaluate
+```
+
+## Architecture
+
+- **Image**: SigLIP2-Giant (1536D) → Projection Head → 512D
+- **Text**: E5-Mistral-7B (4096D) → Projection Head → 512D  
+- **Loss**: InfoNCE (Sigmoid/Softmax/Queue variants)
+- **Expected**: 30-60% R@1 on COCO test set
+
+## Advanced Usage
+
+See `pipeline/README.md` for:
+- Hyperparameter tuning with Optuna
+- Multiple model architectures (SigLIP, CLIP, Attention, MLP)
+- Configuration management
 Files are saved to `outputs/` directory:
 - `{dataset}_image_embeddings.pt` - Image embeddings tensor
 - `{dataset}_text_embeddings.pt` - Text embeddings tensor  

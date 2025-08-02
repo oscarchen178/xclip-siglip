@@ -22,7 +22,7 @@ xclip-siglip/
     ├── losses.py              # Loss functions  
     ├── metrics.py             # Evaluation metrics
     ├── dataset.py             # Dataset handling
-    ├── optuna_config.yaml     # Tuning configuration
+    ├── optuna_configs/        # Tuning configurations
     ├── HYPERPARAMETER_TUNING.md  # Detailed tuning guide
     └── configs/
 ```
@@ -159,19 +159,9 @@ model:
   dropout: 0.1
 ```
 
-**3. Cross-Modal** (`type: "cross_modal"`) - Cross-attention between modalities
-```yaml
-model:
-  type: "cross_modal" 
-  output_dim: 512
-  hidden_dim: 1024
-  num_heads: 8
-  dropout: 0.1
-```
+## Model Architectures
 
-## SOTA Projection Heads
-
-**4. SigLIP** (`type: \"siglip\"`) - Authentic SigLIP architecture
+**3. SigLIP** (`type: \"siglip\"`) - Simple SigLIP projection
 ```yaml
 model:
   type: \"siglip\"
@@ -182,41 +172,16 @@ loss:
   temperature: 0.01         # Lower temperature than CLIP
 ```
 
-**5. CLIP** (`type: \"clip\"`) - Learnable temperature scaling
+**4. CLIP** (`type: \"clip\"`) - MLP with learnable temperature
 ```yaml
 model:
   type: \"clip\"
   output_dim: 512
-  hidden_dim: 1024      # Defaults to input_dim // 2
-  dropout: 0.1
-  learnable_temp: true  # Key CLIP innovation
-loss:
-  type: \"clip\"          # Uses learnable temperature
-```
-
-**6. ALIGN** (`type: \"align\"`) - Batch normalization and larger capacity
-```yaml
-model:
-  type: \"align\"
-  output_dim: 512
-  hidden_dim: 2048      # Larger hidden dimensions
-  dropout: 0.1
-  use_bn: true          # BatchNorm instead of LayerNorm
-loss:
-  type: \"align\"
-```
-
-**7. BLIP** (`type: \"blip\"`) - Momentum contrastive learning
-```yaml
-model:
-  type: \"blip\"
-  output_dim: 512
   hidden_dim: 1024
   dropout: 0.1
-  momentum: 0.999       # Momentum coefficient
+  learnable_temp: true
 loss:
-  type: \"blip\"
-  alpha: 0.4            # Momentum loss weight
+  type: \"softmax_infonce\"
 ```
 
 ## Data Splits (After `split_train_data.py`)
@@ -429,21 +394,21 @@ elif loss_type == 'custom':
 ## Quick SOTA Model Testing
 
 ```bash
-# Test all SOTA models
-python train.py configs/siglip.yaml           # Authentic SigLIP with sigmoid loss
-python train.py configs/clip.yaml             # CLIP with learnable temperature  
-python train.py configs/align.yaml            # ALIGN with batch normalization
-python train.py configs/blip.yaml             # BLIP with momentum learning
+# Train different models
+python train.py configs/siglip.yaml           # SigLIP model
+python train.py configs/clip.yaml             # CLIP model  
+python train.py configs/attention.yaml        # Attention model
+python train.py configs/mlp.yaml              # MLP baseline
 
 # Evaluate results
 python evaluate.py configs/siglip.yaml
 python evaluate.py configs/clip.yaml
-python evaluate.py configs/align.yaml  
-python evaluate.py configs/blip.yaml
+python evaluate.py configs/attention.yaml
+python evaluate.py configs/mlp.yaml
 ```
 
-**Expected Differences:**
-- **SigLIP**: Authentic sigmoid loss, simple architecture, lower temperature
-- **CLIP**: Logs learned temperature, may converge faster
-- **ALIGN**: Uses BatchNorm, good for larger batch sizes
-- **BLIP**: Momentum updates, more stable training
+**Model Types:**
+- **SigLIP**: Simple projection with sigmoid InfoNCE loss
+- **CLIP**: MLP projection with learnable temperature  
+- **Attention**: Multi-head self-attention projection
+- **MLP**: Basic multilayer perceptron baseline
