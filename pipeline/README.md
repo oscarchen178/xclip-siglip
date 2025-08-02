@@ -62,64 +62,37 @@ graph TB
 # 1. Create tuning subset (if not already done)
 python split_train_data.py
 
-# 2. Run hyperparameter tuning (uses 100K subset for speed)
-python tune_hyperparams.py
+# 2. Run hyperparameter tuning with specific config
+python tune_hyperparams.py optuna_configs/default.yaml
 
 # 3. Use best results for final training
-python train.py best_hyperparams_config.yaml
+python train.py optuna_results/best_config.yaml
 ```
 
-### Configuration (`optuna_config.yaml`)
-```yaml
-# Study settings
-study_name: "xclip_siglip_tuning"
-n_trials: 100                    # Number of trials to run
-n_jobs: 3                        # Parallel trials (adjust for GPU memory)
-storage: "sqlite:///optuna_study.db"  # Persistent results
+### Configuration Files
 
-# Search space configuration
-search_space:
-  # Model architecture
-  head_type:
-    type: categorical
-    choices: ['siglip', 'clip', 'attention', 'mlp']
-  
-  output_dim:
-    type: categorical
-    choices: [256, 512, 768, 1024]
-  
-  dropout:
-    type: float
-    low: 0.0
-    high: 0.3
-  
-  # Loss configuration
-  loss_type:
-    type: categorical
-    choices: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
-  
-  temperature:
-    type: float
-    low: 0.01
-    high: 0.2
-    log: true
-  
-  # Training hyperparameters
-  batch_size:
-    type: categorical
-    choices: [2048, 4096, 8192]
-  
-  learning_rate:
-    type: float
-    low: 1.0e-5
-    high: 1.0e-2
-    log: true
-  
-  weight_decay:
-    type: float
-    low: 1.0e-6
-    high: 1.0e-1
-    log: true
+The tuning script now uses configuration files from the `optuna_configs/` directory:
+
+**Available Configurations:**
+- `optuna_configs/default.yaml` - Multi-model search (all architectures, 150 trials)
+- `optuna_configs/siglip.yaml` - SigLIP-focused optimization (50 trials)
+- `optuna_configs/clip.yaml` - CLIP-focused optimization (50 trials)  
+- `optuna_configs/attention.yaml` - Attention architecture tuning (75 trials)
+- `optuna_configs/mlp.yaml` - MLP baseline optimization (40 trials)
+
+**Usage Examples:**
+```bash
+# Multi-model hyperparameter search
+python tune_hyperparams.py optuna_configs/default.yaml
+
+# Model-specific tuning
+python tune_hyperparams.py optuna_configs/siglip.yaml
+python tune_hyperparams.py optuna_configs/clip.yaml
+python tune_hyperparams.py optuna_configs/attention.yaml
+python tune_hyperparams.py optuna_configs/mlp.yaml
+
+# Default config if no argument provided
+python tune_hyperparams.py  # Uses optuna_configs/default.yaml
 ```
 
 ### Key Features
@@ -131,7 +104,7 @@ search_space:
 - **Multiple losses**: Tests sigmoid, softmax, and queue-based InfoNCE losses
 
 ### Expected Results
-- **Typical runtime**: ~1-2 hours for 100 trials on RTX 4090
+- **Typical runtime**: ~1-2 hours for 100 trials on modern GPUs
 - **Performance**: Usually achieves 25-40% R@1 on final training
 - **Best configuration saved**: `best_hyperparams_config.yaml` created automatically
 
@@ -139,19 +112,16 @@ search_space:
 
 **Resume interrupted tuning:**
 ```bash
-# Just run again - automatically resumes from database
-python tune_hyperparams.py
+# Just run again with same config - automatically resumes from database
+python tune_hyperparams.py optuna_configs/default.yaml
 ```
 
-**New study with different search space:**
-```yaml
-# In optuna_config.yaml
-study_name: "focused_attention_tuning"  # New study name
-search_space:
-  head_type:
-    choices: ['attention']  # Focus on best architecture
-  output_dim:
-    choices: [768, 1024, 1536]  # Explore higher dimensions
+**Create custom configurations:**
+```bash
+# Copy existing config and modify
+cp optuna_configs/default.yaml optuna_configs/my_custom.yaml
+# Edit my_custom.yaml to change search space, study name, etc.
+python tune_hyperparams.py optuna_configs/my_custom.yaml
 ```
 
 **Check results:**
@@ -162,12 +132,6 @@ print(f"Best R@1: {study.best_value:.4f}")
 print(f"Best params: {study.best_params}")
 ```
 
-### Memory Requirements
-- **n_jobs=1**: ~11GB RAM + ~8GB VRAM per trial
-- **n_jobs=2**: ~22GB RAM + ~16GB VRAM  
-- **n_jobs=3**: ~33GB RAM + ~24GB VRAM
-- **RTX 4090 + 32GB+ RAM**: Can handle n_jobs=2-3
-- **RTX 3080 + 16GB RAM**: Use n_jobs=1
 
 ## Quick Start
 

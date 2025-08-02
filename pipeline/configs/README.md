@@ -1,52 +1,49 @@
-# Configuration Files
+# Training Configuration Files
 
-This directory contains YAML configuration files for different training setups.
+This directory contains YAML configuration files for training specific projection head models.
 
-## Available Configurations
+## Available Model Configurations
 
-### 🔥 **InfoNCE Configurations**
+| Config | Model Type | Loss Function | Description |
+|--------|------------|---------------|-------------|
+| **`siglip.yaml`** | SigLIP | Sigmoid InfoNCE | Authentic SigLIP with low temperature |
+| **`clip.yaml`** | CLIP | CLIP/Softmax InfoNCE | CLIP with learnable temperature |
+| **`attention.yaml`** | Attention | Softmax InfoNCE | Multi-head self-attention projection |
+| **`mlp.yaml`** | MLP | Softmax InfoNCE | Simple MLP baseline |
+| **`optuna_best.yaml`** | Best | Variable | Best configuration from hyperparameter tuning |
 
-| Config | Description | Loss Function | Model | Best For |
-|--------|-------------|---------------|-------|----------|
-| **`sigmoid_infonce.yaml`** | SigLIP-style binary cross-entropy | Sigmoid InfoNCE | SigLIP Head | Balanced performance |
-| **`softmax_infonce.yaml`** | CLIP-style cross-entropy | Softmax InfoNCE | CLIP Head | Strong baselines |
-| **`queue_infonce.yaml`** | Hard negatives with queue | Queue InfoNCE | Attention Head | Advanced training |
-| **`clip_learnable.yaml`** | CLIP with learnable temperature | CLIP loss | CLIP Head | Temperature optimization |
+## Model Architecture Details
 
-### 📜 **Legacy Configurations**
-
-| Config | Description | Status |
-|--------|-------------|--------|
-| **`siglip.yaml`** | Original SigLIP config (updated) | ✅ Compatible |
-| **`clip.yaml`** | Original CLIP config | ✅ Compatible |
-
-### 📊 **Model Types**
-
-- **`siglip`**: Simple projection (LayerNorm → Dropout → Linear)
-- **`clip`**: MLP projection with optional learnable temperature
+- **`siglip`**: Simple projection (LayerNorm → Dropout → Linear) with sigmoid loss
+- **`clip`**: MLP projection with learnable temperature scaling
 - **`attention`**: Multi-head self-attention based projection
-
-### 🎯 **Loss Functions**
-
-- **`sigmoid_infonce`**: Binary cross-entropy (SigLIP-style)
-- **`softmax_infonce`**: Cross-entropy (CLIP-style) 
-- **`queue_infonce`**: Hard negatives with memory queue
-- **`clip`**: CLIP loss with learnable temperature
+- **`mlp`**: Basic MLP baseline (Linear → GELU → Dropout → Linear)
 
 ## Quick Start
 
 ```bash
-# Train with different configurations
-python train.py configs/sigmoid_infonce.yaml
-python train.py configs/softmax_infonce.yaml
-python train.py configs/queue_infonce.yaml
+# Train with different model configurations
+python train.py configs/siglip.yaml
+python train.py configs/clip.yaml
+python train.py configs/attention.yaml
+python train.py configs/mlp.yaml
 
-# Hyperparameter tuning (finds best config automatically)
-python tune_hyperparams.py
+# Hyperparameter tuning for specific models
+python tune_hyperparams.py optuna_configs/siglip.yaml
+python tune_hyperparams.py optuna_configs/clip.yaml
 
 # Train with best config from tuning
-python train.py optuna_results/best_config.yaml
+python train.py configs/optuna_best.yaml
 ```
+
+## Hyperparameter Tuning Configurations
+
+For hyperparameter tuning configurations, see the `../optuna_configs/` directory:
+- `../optuna_configs/default.yaml` - Multi-model search (all architectures)
+- `../optuna_configs/siglip.yaml` - SigLIP-focused optimization
+- `../optuna_configs/clip.yaml` - CLIP-focused optimization  
+- `../optuna_configs/attention.yaml` - Attention architecture tuning
+- `../optuna_configs/mlp.yaml` - MLP baseline optimization
 
 ## Configuration Structure
 

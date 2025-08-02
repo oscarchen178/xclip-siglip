@@ -1,0 +1,75 @@
+# Optuna Configuration for Attention Model Optimization
+
+study_name: "attention_tuning"
+n_trials: 75  # More trials for complex attention architecture
+timeout: null
+storage: "sqlite:///optuna_attention.db"
+n_jobs: 2
+
+# Search space focused on attention architecture
+search_space:
+  # Model architecture - attention only
+  head_type:
+    type: categorical
+    choices: ['attention']
+  
+  output_dim:
+    type: categorical
+    choices: [512, 768, 1024]
+  
+  dropout:
+    type: float
+    low: 0.0
+    high: 0.3
+  
+  # Loss configuration - all losses work with attention
+  loss_type:
+    type: categorical
+    choices: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
+  
+  temperature:
+    type: float
+    low: 0.01
+    high: 0.2
+    log: true
+  
+  # Training hyperparameters - smaller batches for attention
+  batch_size:
+    type: categorical
+    choices: [256, 512, 1024, 2048]
+  
+  learning_rate:
+    type: float
+    low: 5.0e-5
+    high: 5.0e-4
+    log: true
+  
+  weight_decay:
+    type: float
+    low: 1.0e-4
+    high: 1.0e-2
+    log: true
+  
+  # Attention-specific parameters
+  hidden_dim:
+    type: categorical
+    choices: [512, 1024, 2048]
+  
+  num_heads:
+    type: categorical
+    choices: [4, 8, 16]
+  
+  num_layers:
+    type: categorical
+    choices: [1, 2, 3, 4]
+  
+  queue_size:  # for queue_infonce
+    type: categorical
+    choices: [2048, 4096, 8192]
+
+# ASHA pruner settings
+pruner:
+  type: "SuccessiveHalvingPruner"
+  min_resource: 2
+  reduction_factor: 3
+  min_early_stopping_rate: 1

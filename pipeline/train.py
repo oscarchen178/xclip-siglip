@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 # Import model and loss definitions
 from models import create_model
 from losses import compute_loss
-from dataset import create_legacy_dataset
+from dataset import create_train_dataset, create_eval_dataset
 
 
 
@@ -80,53 +80,32 @@ def plot_training_curves(train_losses, val_losses, output_dir):
 
 
 
-def train_epoch(image_head, text_head, train_loader, optimizer, device, config, is_cross_modal, pin_memory):
+def train_epoch(image_head, text_head, train_loader, optimizer, device, config, pin_memory):
     """Train for one epoch."""
-    if is_cross_modal:
-        image_head.train()
-    else:
-        image_head.train()
-        text_head.train()
+    image_head.train()
+    text_head.train()
     
     total_loss = 0
-    for image_emb, text_emb in tqdm(train_loader, desc="Training"):
+    for image_emb, text_emb, img_ids in tqdm(train_loader, desc="Training"):
         # Convert to float32 to ensure dtype compatibility with projection heads
         image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
-        # Forward pass
-        if is_cross_modal:
-            image_proj, text_proj = image_head(image_emb, text_emb)
-        else:
-            image_proj = image_head(image_emb)
-            text_proj = text_head(text_emb)
+        # Forward pass (simplified, no cross-modal or BLIP support)
+        image_proj = image_head(image_emb)
+        text_proj = text_head(text_emb)
         
-        # Handle BLIP momentum features if needed
-        momentum_image_proj = None
-        momentum_text_proj = None
-        if config['model']['type'] == 'blip' and config['loss'].get('alpha', 0) > 0:
-            momentum_image_proj = image_head(image_emb, use_momentum=True)
-            momentum_text_proj = text_head(text_emb, use_momentum=True)
-        
-        # Compute loss
-        loss = compute_loss(image_proj, text_proj, config, image_head, text_head,
-                          momentum_image_proj, momentum_text_proj)
+        # Compute loss with image IDs for queue-based losses
+        loss = compute_loss(image_proj, text_proj, config, image_head, text_head, img_ids=img_ids)
         
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            image_head.parameters() if is_cross_modal else 
             list(image_head.parameters()) + list(text_head.parameters()),
             float(config['training']['max_grad_norm'])
         )
         optimizer.step()
-        
-        # Update BLIP momentum networks
-        if config['model']['type'] == 'blip':
-            if not is_cross_modal:
-                image_head.update_momentum()
-                text_head.update_momentum()
         
         total_loss += loss.item()
     
@@ -134,37 +113,23 @@ def train_epoch(image_head, text_head, train_loader, optimizer, device, config, 
 
 
 @torch.no_grad()
-def validate(image_head, text_head, val_loader, device, config, is_cross_modal, pin_memory):
+def validate(image_head, text_head, val_loader, device, config, pin_memory):
     """Validate for one epoch."""
-    if is_cross_modal:
-        image_head.eval()
-    else:
-        image_head.eval()
-        text_head.eval()
+    image_head.eval()
+    text_head.eval()
     
     total_loss = 0
-    for image_emb, text_emb in tqdm(val_loader, desc="Validation"):
+    for image_emb, text_emb, img_ids in tqdm(val_loader, desc="Validation"):
         # Convert to float32 to ensure dtype compatibility with projection heads
         image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
-        # Forward pass
-        if is_cross_modal:
-            image_proj, text_proj = image_head(image_emb, text_emb)
-        else:
-            image_proj = image_head(image_emb)
-            text_proj = text_head(text_emb)
+        # Forward pass (simplified)
+        image_proj = image_head(image_emb)
+        text_proj = text_head(text_emb)
         
-        # Handle BLIP momentum features if needed (for validation)
-        momentum_image_proj = None
-        momentum_text_proj = None
-        if config['model']['type'] == 'blip' and config['loss'].get('alpha', 0) > 0:
-            momentum_image_proj = image_head(image_emb, use_momentum=True)
-            momentum_text_proj = text_head(text_emb, use_momentum=True)
-        
-        # Compute loss
-        loss = compute_loss(image_proj, text_proj, config, image_head, text_head,
-                          momentum_image_proj, momentum_text_proj)
+        # Compute loss with image IDs
+        loss = compute_loss(image_proj, text_proj, config, image_head, text_head, img_ids=img_ids)
         total_loss += loss.item()
     
     return total_loss / len(val_loader)
@@ -212,11 +177,13 @@ def main():
     # Create datasets
     print("Using training split for training (~95K samples)")
     print("Using validation split for validation (~5K samples)")
-    train_dataset = create_legacy_dataset(
+    train_dataset = create_train_dataset(
+        "../pretrain_encoded",
         config['data']['train_image_embeddings'],
         config['data']['train_text_embeddings']
     )
-    val_dataset = create_legacy_dataset(
+    val_dataset = create_eval_dataset(
+        "../pretrain_encoded", 
         config['data']['val_image_embeddings'],
         config['data']['val_text_embeddings']
     )
@@ -253,24 +220,19 @@ def main():
     print(f"Image dim: {image_dim}, Text dim: {text_dim}")
     
     # Create model
-    image_head, text_head, is_cross_modal = create_model(config, image_dim, text_dim)
+    image_head, text_head = create_model(config, image_dim, text_dim)
     
     # Move to device with consistent dtype for MPS
     if device.type == 'mps':
         # Force float32 for MPS compatibility
         image_head = image_head.to(device, dtype=torch.float32)
-        if text_head is not None:
-            text_head = text_head.to(device, dtype=torch.float32)
+        text_head = text_head.to(device, dtype=torch.float32)
     else:
         image_head = image_head.to(device)
-        if text_head is not None:
-            text_head = text_head.to(device)
+        text_head = text_head.to(device)
     
     # Create optimizer
-    if is_cross_modal:
-        params = image_head.parameters()
-    else:
-        params = list(image_head.parameters()) + list(text_head.parameters())
+    params = list(image_head.parameters()) + list(text_head.parameters())
     
     optimizer = torch.optim.AdamW(
         params,
@@ -293,10 +255,10 @@ def main():
     print("Starting training...")
     for epoch in range(config['training']['num_epochs']):
         # Train
-        train_loss = train_epoch(image_head, text_head, train_loader, optimizer, device, config, is_cross_modal, pin_memory)
+        train_loss = train_epoch(image_head, text_head, train_loader, optimizer, device, config, pin_memory)
         
         # Validate
-        val_loss = validate(image_head, text_head, val_loader, device, config, is_cross_modal, pin_memory)
+        val_loss = validate(image_head, text_head, val_loader, device, config, pin_memory)
         
         # Store losses for plotting
         train_losses.append(train_loss)
@@ -305,7 +267,7 @@ def main():
         # Log epoch results with optional temperature for CLIP
         log_msg = f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train: {train_loss:.4f}, Val: {val_loss:.4f}"
         
-        if config['model']['type'] == 'clip' and not is_cross_modal:
+        if config['model']['type'] == 'clip':
             # Log learned temperature for CLIP
             if hasattr(image_head, 'get_temperature'):
                 temp = image_head.get_temperature()
@@ -323,11 +285,9 @@ def main():
                 'epoch': epoch + 1,
                 'config': config,
                 'image_head_state': image_head.state_dict(),
-                'val_loss': val_loss,
-                'is_cross_modal': is_cross_modal
+                'text_head_state': text_head.state_dict(),
+                'val_loss': val_loss
             }
-            if not is_cross_modal:
-                checkpoint['text_head_state'] = text_head.state_dict()
             
             torch.save(checkpoint, output_dir / 'best_model.pt')
             print(f"New best model saved! Val loss: {val_loss:.4f}")

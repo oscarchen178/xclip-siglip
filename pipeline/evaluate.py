@@ -201,67 +201,67 @@ def load_model_from_checkpoint(checkpoint_path, device):
     """Load model from checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     config = checkpoint['config']
-    is_cross_modal = checkpoint['is_cross_modal']
     
     # Import model classes (same as in train.py)
     from models import create_model
     
     # Get dimensions from state dict
-    if is_cross_modal:
-        state_dict = checkpoint['image_head_state']
-        first_layer_key = next(iter(state_dict.keys()))
-        if 'image_proj.weight' in state_dict:
-            image_dim = state_dict['image_proj.weight'].shape[1]
-            text_dim = state_dict['text_proj.weight'].shape[1]
-        else:
-            # Fallback: try to infer from config or first layer
-            image_dim = config['model'].get('image_input_dim', 1408)  # SigLIP default
-            text_dim = config['model'].get('text_input_dim', 4096)    # E5-Mistral default
-    else:
-        img_state = checkpoint['image_head_state']
-        txt_state = checkpoint['text_head_state']
-        
-        # Get dimensions from first layer
-        img_first_key = 'projection.0.weight'  # MLP first layer
-        if img_first_key not in img_state:
-            img_first_key = next(iter(img_state.keys()))
-        
-        txt_first_key = 'projection.0.weight'
-        if txt_first_key not in txt_state:
-            txt_first_key = next(iter(txt_state.keys()))
-        
-        image_dim = img_state[img_first_key].shape[1]
-        text_dim = txt_state[txt_first_key].shape[1]
+    img_state = checkpoint['image_head_state']
+    txt_state = checkpoint['text_head_state']
     
-    # Create model
-    image_head, text_head, _ = create_model(config, image_dim, text_dim)
+    # Get dimensions from first layer - try different layer name patterns
+    possible_keys = ['projection.0.weight', 'layer_norm.weight', 'projection.weight']
+    
+    img_first_key = None
+    for key in possible_keys:
+        if key in img_state:
+            img_first_key = key
+            break
+    
+    if img_first_key is None:
+        img_first_key = next(iter(img_state.keys()))
+    
+    txt_first_key = None
+    for key in possible_keys:
+        if key in txt_state:
+            txt_first_key = key
+            break
+    
+    if txt_first_key is None:
+        txt_first_key = next(iter(txt_state.keys()))
+    
+    # Get input dimensions from the first layer
+    if 'weight' in img_first_key:
+        image_dim = img_state[img_first_key].shape[1] if img_state[img_first_key].dim() > 1 else img_state[img_first_key].shape[0]
+        text_dim = txt_state[txt_first_key].shape[1] if txt_state[txt_first_key].dim() > 1 else txt_state[txt_first_key].shape[0]
+    else:
+        # Fallback to default dimensions
+        image_dim = 1408  # SigLIP default
+        text_dim = 4096   # E5-Mistral default
+    
+    # Create model - now returns only (image_head, text_head)
+    image_head, text_head = create_model(config, image_dim, text_dim)
     
     # Load weights
     image_head.load_state_dict(checkpoint['image_head_state'])
-    if not is_cross_modal:
-        text_head.load_state_dict(checkpoint['text_head_state'])
+    text_head.load_state_dict(checkpoint['text_head_state'])
     
     # Move to device with MPS compatibility
     if device.type == 'mps':
         image_head = image_head.to(device, dtype=torch.float32)
-        if text_head is not None:
-            text_head = text_head.to(device, dtype=torch.float32)
+        text_head = text_head.to(device, dtype=torch.float32)
     else:
         image_head = image_head.to(device)
-        if text_head is not None:
-            text_head = text_head.to(device)
+        text_head = text_head.to(device)
     
-    return image_head, text_head, config, is_cross_modal
+    return image_head, text_head, config
 
 
 @torch.no_grad()
-def extract_features(image_head, text_head, data_loader, device, is_cross_modal, pin_memory=False):
+def extract_features(image_head, text_head, data_loader, device, pin_memory=False):
     """Extract features from the model."""
-    if is_cross_modal:
-        image_head.eval()
-    else:
-        image_head.eval()
-        text_head.eval()
+    image_head.eval()
+    text_head.eval()
     
     image_features = []
     text_features = []
@@ -282,11 +282,9 @@ def extract_features(image_head, text_head, data_loader, device, is_cross_modal,
         else:
             image_emb, text_emb = image_emb.to(device, non_blocking=pin_memory), text_emb.to(device, non_blocking=pin_memory)
         
-        if is_cross_modal:
-            img_proj, txt_proj = image_head(image_emb, text_emb)
-        else:
-            img_proj = image_head(image_emb)
-            txt_proj = text_head(text_emb)
+        # Simple projection head forward pass
+        img_proj = image_head(image_emb)
+        txt_proj = text_head(text_emb)
         
         image_features.append(img_proj.cpu())
         text_features.append(txt_proj.cpu())
@@ -345,7 +343,7 @@ def main():
         torch.backends.mps.fallback_enabled = True
     
     # Load model
-    image_head, text_head, model_config, is_cross_modal = load_model_from_checkpoint(model_path, device)
+    image_head, text_head, model_config = load_model_from_checkpoint(model_path, device)
     print(f"Model loaded successfully! Type: {model_config['model']['type']}")
     
     # Create evaluation dataset (test set only)
@@ -364,9 +362,10 @@ def main():
         metadata_path = test_img_path.parent / "train2017_metadata.json"
     
     eval_dataset = create_eval_dataset(
+        "../pretrain_encoded",
         config['data']['test_image_embeddings'],
         config['data']['test_text_embeddings'],
-        metadata_path if metadata_path.exists() else None
+        "test_metadata.json"
     )
     
     # Create data loader with device-optimized settings
@@ -386,7 +385,7 @@ def main():
     # Extract features
     print("Extracting features...")
     image_features, text_features, image_ids = extract_features(
-        image_head, text_head, eval_loader, device, is_cross_modal, pin_memory
+        image_head, text_head, eval_loader, device, pin_memory
     )
     
     # Compute retrieval metrics

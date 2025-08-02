@@ -2,11 +2,12 @@
 """
 Hyperparameter tuning with Optuna + ASHA for cross-modal projection heads.
 
-Configuration via optuna_config.yaml:
-  study_name: "cross_modal_tuning"
-  n_trials: 100
-  timeout: 3600  # seconds
-  storage: null  # or "sqlite:///optuna.db"
+Usage:
+    python tune_hyperparams.py [config_file]
+    
+Examples:
+    python tune_hyperparams.py                              # Uses optuna_configs/default.yaml
+    python tune_hyperparams.py optuna_configs/fast.yaml     # Uses custom config
 """
 
 import json
@@ -21,7 +22,7 @@ import torch
 import torch.nn as nn
 import yaml
 from optuna.pruners import SuccessiveHalvingPruner
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from models import SigLIPProjectionHead, CLIPProjectionHead, AttentionProjectionHead, MLPProjectionHead
@@ -249,42 +250,17 @@ def create_objective_function(tuning_config):
 
 
 def main():
-    # Load config
-    config_path = "optuna_config.yaml"
+    # Load config from CLI argument
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "optuna_configs/default.yaml"
     
-    # Default config if file doesn't exist (basic version - should use YAML file)
-    default_config = {
-        'study_name': 'cross_modal_tuning',
-        'n_trials': 100,
-        'timeout': None,
-        'storage': None,
-        'n_jobs': 1,
-        'search_space': {
-            'head_type': {'choices': ['siglip', 'clip', 'attention', 'mlp']},
-            'output_dim': {'choices': [256, 512, 768, 1024]},
-            'dropout': {'low': 0.0, 'high': 0.3},
-            'loss_type': {'choices': ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']},
-            'temperature': {'low': 0.01, 'high': 0.2, 'log': True},
-            'batch_size': {'choices': [2048, 4096, 8192]},
-            'learning_rate': {'low': 1e-5, 'high': 1e-2, 'log': True},
-            'weight_decay': {'low': 1e-6, 'high': 1e-1, 'log': True},
-            'hidden_dim': {'choices': [512, 1024, 2048]},
-            'learnable_temp': {'choices': [True, False]},
-            'num_heads': {'choices': [4, 8, 16]},
-            'num_layers': {'choices': [1, 2, 3]},
-            'queue_size': {'choices': [2048, 4096, 8192]}
-        }
-    }
+    if not Path(config_path).exists():
+        print(f"Error: Config file not found: {config_path}")
+        print("Usage: python tune_hyperparams.py [config_file]")
+        print("Example: python tune_hyperparams.py optuna_configs/default.yaml")
+        sys.exit(1)
     
-    if Path(config_path).exists():
-        with open(config_path, 'r') as f:
-            tuning_config = yaml.safe_load(f)
-    else:
-        tuning_config = default_config
-        # Save default config
-        with open(config_path, 'w') as f:
-            yaml.dump(default_config, f, indent=2)
-        print(f"Created default config: {config_path}")
+    with open(config_path, 'r') as f:
+        tuning_config = yaml.safe_load(f)
     
     # Create output directory
     output_dir = Path("optuna_results")
@@ -363,7 +339,7 @@ def main():
     print(f"Best params: {study.best_params}")
     
     # Create training config from best trial 
-    best_config = create_config(study.best_trial)
+    best_config = create_config(study.best_trial, tuning_config['search_space'])
     
     # Add metadata
     best_config['experiment_name'] = f"best_{tuning_config['study_name']}"

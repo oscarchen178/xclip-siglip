@@ -1,0 +1,67 @@
+# Optuna Configuration for CLIP Model Optimization
+
+study_name: "clip_tuning"
+n_trials: 50
+timeout: null
+storage: "sqlite:///optuna_clip.db"
+n_jobs: 2
+
+# Search space focused on CLIP architecture
+search_space:
+  # Model architecture - CLIP only
+  head_type:
+    type: categorical
+    choices: ['clip']
+  
+  output_dim:
+    type: categorical
+    choices: [256, 512, 768, 1024]
+  
+  dropout:
+    type: float
+    low: 0.0
+    high: 0.3
+  
+  # Loss configuration - CLIP specific
+  loss_type:
+    type: categorical
+    choices: ['clip', 'softmax_infonce']  # CLIP loss and standard InfoNCE
+  
+  temperature:
+    type: float
+    low: 0.01
+    high: 0.2
+    log: true
+  
+  # Training hyperparameters
+  batch_size:
+    type: categorical
+    choices: [512, 1024, 2048, 4096]
+  
+  learning_rate:
+    type: float
+    low: 1.0e-4
+    high: 1.0e-3
+    log: true
+  
+  weight_decay:
+    type: float
+    low: 1.0e-3
+    high: 5.0e-2
+    log: true
+  
+  # CLIP-specific parameters
+  hidden_dim:
+    type: categorical
+    choices: [512, 1024, 2048]
+  
+  learnable_temp:
+    type: categorical
+    choices: [true, false]
+
+# ASHA pruner settings
+pruner:
+  type: "SuccessiveHalvingPruner"
+  min_resource: 2
+  reduction_factor: 3
+  min_early_stopping_rate: 1

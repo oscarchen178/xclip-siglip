@@ -1,0 +1,63 @@
+# Optuna Configuration for MLP Model Optimization
+
+study_name: "mlp_tuning"
+n_trials: 40  # Fewer trials for simple baseline
+timeout: null
+storage: "sqlite:///optuna_mlp.db"
+n_jobs: 2
+
+# Search space focused on MLP architecture
+search_space:
+  # Model architecture - MLP only
+  head_type:
+    type: categorical
+    choices: ['mlp']
+  
+  output_dim:
+    type: categorical
+    choices: [256, 512, 768, 1024]
+  
+  dropout:
+    type: float
+    low: 0.0
+    high: 0.4  # MLPs can handle higher dropout
+  
+  # Loss configuration - standard losses for baseline
+  loss_type:
+    type: categorical
+    choices: ['sigmoid_infonce', 'softmax_infonce']
+  
+  temperature:
+    type: float
+    low: 0.01
+    high: 0.2
+    log: true
+  
+  # Training hyperparameters
+  batch_size:
+    type: categorical
+    choices: [512, 1024, 2048, 4096]
+  
+  learning_rate:
+    type: float
+    low: 1.0e-4
+    high: 1.0e-3
+    log: true
+  
+  weight_decay:
+    type: float
+    low: 1.0e-4
+    high: 1.0e-2
+    log: true
+  
+  # MLP-specific parameters
+  hidden_dim:
+    type: categorical
+    choices: [512, 1024, 2048]
+
+# ASHA pruner settings
+pruner:
+  type: "SuccessiveHalvingPruner"
+  min_resource: 2
+  reduction_factor: 3
+  min_early_stopping_rate: 1
