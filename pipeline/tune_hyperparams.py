@@ -25,7 +25,7 @@ from optuna.pruners import SuccessiveHalvingPruner
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models import SigLIPProjectionHead, CLIPProjectionHead, AttentionProjectionHead, MLPProjectionHead
+# Model creation now uses models.create_model() for consistency
 from losses import compute_loss, clear_loss_instances
 from metrics import compute_validation_metrics
 from dataset import create_train_dataset, create_eval_dataset
@@ -38,41 +38,16 @@ optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout)
 
 
 
-def create_projection_heads(trial, image_dim: int, text_dim: int, device: torch.device):
-    """Create projection heads based on trial suggestions."""
-    # Suggest architecture
-    head_type = trial.suggest_categorical('head_type', ['siglip', 'clip', 'attention', 'mlp'])
-    output_dim = trial.suggest_categorical('output_dim', [256, 512, 768, 1024])
-    dropout = trial.suggest_float('dropout', 0.0, 0.3)
+def create_models_from_config(config: Dict[str, Any], image_dim: int, text_dim: int, device: torch.device):
+    """Create projection heads from config dictionary (consistent with train.py)."""
+    from models import create_model
     
-    if head_type == 'siglip':
-        image_head = SigLIPProjectionHead(image_dim, output_dim, dropout)
-        text_head = SigLIPProjectionHead(text_dim, output_dim, dropout)
-        
-    elif head_type == 'clip':
-        hidden_dim = trial.suggest_categorical('hidden_dim', [512, 1024, 2048])
-        learnable_temp = trial.suggest_categorical('learnable_temp', [True, False])
-        
-        image_head = CLIPProjectionHead(image_dim, output_dim, hidden_dim, dropout, learnable_temp)
-        text_head = CLIPProjectionHead(text_dim, output_dim, hidden_dim, dropout, learnable_temp)
-        
-    elif head_type == 'attention':
-        hidden_dim = trial.suggest_categorical('hidden_dim', [512, 1024, 2048])
-        num_heads = trial.suggest_categorical('num_heads', [4, 8, 16])
-        num_layers = trial.suggest_categorical('num_layers', [1, 2, 3])
-        
-        image_head = AttentionProjectionHead(image_dim, output_dim, hidden_dim, num_heads, num_layers, dropout)
-        text_head = AttentionProjectionHead(text_dim, output_dim, hidden_dim, num_heads, num_layers, dropout)
-        
-    elif head_type == 'mlp':
-        hidden_dim = trial.suggest_categorical('hidden_dim', [512, 1024, 2048])
-        
-        image_head = MLPProjectionHead(image_dim, output_dim, hidden_dim, dropout)
-        text_head = MLPProjectionHead(text_dim, output_dim, hidden_dim, dropout)
+    # Create models using the same factory function as train.py
+    image_head, text_head = create_model(config, image_dim, text_dim)
     
-    # Move to device  
-    image_head = image_head.to(device)
-    text_head = text_head.to(device)
+    # Move to device with consistent float32 dtype
+    image_head = image_head.to(device, dtype=torch.float32)
+    text_head = text_head.to(device, dtype=torch.float32)
     
     return image_head, text_head
 
@@ -188,7 +163,7 @@ def create_objective_function(tuning_config):
         
         # Create config and models
         config = create_config(trial, tuning_config['search_space'])
-        image_head, text_head = create_projection_heads(trial, image_dim, text_dim, device)
+        image_head, text_head = create_models_from_config(config, image_dim, text_dim, device)
         
         # Create data loaders
         batch_size = config['training']['batch_size']
@@ -210,9 +185,10 @@ def create_objective_function(tuning_config):
         # Training loop with early reporting for ASHA
         best_val_r1 = 0.0
         patience_counter = 0
-        max_patience = 2  # Reduced patience for faster pruning
+        max_patience = tuning_config.get('max_patience', 2)  # Reduced patience for faster pruning
+        max_epochs = tuning_config.get('max_epochs', 8)  # Reduced epochs for faster tuning
         
-        for epoch in range(8):  # Reduced epochs for faster tuning
+        for epoch in range(max_epochs):
             # Train
             _ = train_epoch_simple(image_head, text_head, train_loader, optimizer, config, device)
             
@@ -266,11 +242,12 @@ def main():
     output_dir = Path("optuna_results")
     output_dir.mkdir(exist_ok=True)
     
-    # Configure pruner (ASHA)
+    # Configure pruner from config
+    pruner_config = tuning_config.get('pruner', {})
     pruner = SuccessiveHalvingPruner(
-        min_resource=2,      # Minimum epochs before pruning (reduced)
-        reduction_factor=4,  # More aggressive pruning for speed
-        min_early_stopping_rate=1  # Less exploration for speed
+        min_resource=pruner_config.get('min_resource', 2),
+        reduction_factor=pruner_config.get('reduction_factor', 4),
+        min_early_stopping_rate=pruner_config.get('min_early_stopping_rate', 1)
     )
     
     # Create or load study

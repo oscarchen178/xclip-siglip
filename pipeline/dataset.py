@@ -75,6 +75,3 @@ def create_eval_dataset(pretrain_dir, image_path, text_path, metadata_path=None)
     return EmbeddingDataset(image_path, text_path, metadata_path, with_image_ids=True)
 
 
-def create_legacy_dataset(image_path, text_path):
-    """Create legacy dataset without image IDs (for backward compatibility)."""
-    return EmbeddingDataset(image_path, text_path, with_image_ids=False)

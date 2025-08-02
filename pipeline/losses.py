@@ -168,70 +168,7 @@ class QueueInfoNCELoss(nn.Module):
         return loss, logits.detach(), labels
 
 
-# Legacy compatibility functions
-def siglip_loss(image_features, text_features, temperature=0.05):
-    """Legacy SigLIP loss - redirects to SigmoidInfoNCELoss."""
-    loss_fn = SigmoidInfoNCELoss(tau=temperature)
-    loss, _, _ = loss_fn(image_features, text_features)
-    return loss
-
-
-def clip_loss(image_features, text_features, logit_scale):
-    """CLIP loss with learnable temperature."""
-    temperature = 1.0 / logit_scale.exp()
-    loss_fn = SoftmaxInfoNCELoss(tau=temperature)
-    loss, _, _ = loss_fn(image_features, text_features)
-    return loss
-
-
-def align_loss(image_features, text_features, temperature=0.05):
-    """ALIGN loss - same as softmax InfoNCE."""
-    loss_fn = SoftmaxInfoNCELoss(tau=temperature)
-    loss, _, _ = loss_fn(image_features, text_features)
-    return loss
-
-
-def blip_loss(image_features, text_features, momentum_image_features, momentum_text_features, 
-              temperature=0.05, alpha=0.4):
-    """BLIP momentum contrastive loss."""
-    batch_size = image_features.shape[0]
-    
-    # Normalize features
-    image_features = F.normalize(image_features, dim=-1)
-    text_features = F.normalize(text_features, dim=-1)
-    
-    # Compute similarities with momentum features for larger effective batch
-    sim_i2t_m = torch.matmul(image_features, momentum_text_features.T) / temperature
-    sim_t2i_m = torch.matmul(text_features, momentum_image_features.T) / temperature
-    
-    # Standard contrastive loss
-    sim_i2t = torch.matmul(image_features, text_features.T) / temperature
-    sim_t2i = torch.matmul(text_features, image_features.T) / temperature
-    
-    # Labels for current batch
-    labels = torch.arange(batch_size, device=image_features.device)
-    
-    # Main contrastive loss
-    loss_i2t = F.cross_entropy(sim_i2t, labels)
-    loss_t2i = F.cross_entropy(sim_t2i, labels)
-    main_loss = (loss_i2t + loss_t2i) / 2
-    
-    # Momentum augmented loss (optional, controlled by alpha)
-    if alpha > 0 and momentum_image_features is not None:
-        momentum_batch_size = momentum_image_features.shape[0]
-        extended_labels = torch.arange(momentum_batch_size, device=image_features.device)
-        
-        # Only use current batch indices as positive labels
-        valid_indices = extended_labels < batch_size
-        if valid_indices.sum() > 0:
-            loss_i2t_m = F.cross_entropy(sim_i2t_m[:, valid_indices], labels)
-            loss_t2i_m = F.cross_entropy(sim_t2i_m[:, valid_indices], labels)
-            momentum_loss = (loss_i2t_m + loss_t2i_m) / 2
-            
-            # Combine main and momentum losses
-            return (1 - alpha) * main_loss + alpha * momentum_loss
-    
-    return main_loss
+# Loss function management
 
 
 # Global loss instances for stateful losses
@@ -295,16 +232,5 @@ def compute_loss(image_proj, text_proj, config, image_head=None, text_head=None,
         
         return loss
     
-    # Legacy CLIP loss with learnable temperature
-    elif loss_type == 'clip':
-        if hasattr(image_head, 'logit_scale'):
-            logit_scale = image_head.logit_scale
-        elif hasattr(text_head, 'logit_scale'):
-            logit_scale = text_head.logit_scale
-        else:
-            temp = float(config['loss']['temperature'])
-            logit_scale = torch.tensor(1.0 / temp, device=image_proj.device).log()
-        return clip_loss(image_proj, text_proj, logit_scale)
-    
     else:
-        raise ValueError(f"Unknown loss type: {loss_type}. Supported: sigmoid_infonce, softmax_infonce, queue_infonce, clip")
+        raise ValueError(f"Unknown loss type: {loss_type}. Supported: sigmoid_infonce, softmax_infonce, queue_infonce")
