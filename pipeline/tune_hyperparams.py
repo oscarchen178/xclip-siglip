@@ -89,7 +89,7 @@ def create_config(trial) -> Dict[str, Any]:
     temperature = trial.suggest_float('temperature', 0.01, 0.2, log=True)
     
     # Training hyperparameters
-    batch_size = trial.suggest_categorical('batch_size', [256, 512, 1024])
+    batch_size = trial.suggest_categorical('batch_size', [1024, 2048, 4096])
     learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
     weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-1, log=True)
     
@@ -196,9 +196,9 @@ def objective(trial):
     # Training loop with early reporting for ASHA
     best_val_r1 = 0.0
     patience_counter = 0
-    max_patience = 3
+    max_patience = 2  # Reduced patience for faster pruning
     
-    for epoch in range(20):  # Max 20 epochs for tuning
+    for epoch in range(8):  # Reduced epochs for faster tuning
         # Train
         _ = train_epoch_simple(image_head, text_head, train_loader, optimizer, config, device)
         
@@ -261,9 +261,9 @@ def main():
     
     # Configure pruner (ASHA)
     pruner = SuccessiveHalvingPruner(
-        min_resource=3,      # Minimum epochs before pruning
-        reduction_factor=3,  # Aggressive pruning factor
-        min_early_stopping_rate=2  # Allow some exploration
+        min_resource=2,      # Minimum epochs before pruning (reduced)
+        reduction_factor=4,  # More aggressive pruning for speed
+        min_early_stopping_rate=1  # Less exploration for speed
     )
     
     # Create or load study

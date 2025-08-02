@@ -75,13 +75,29 @@ class EmbQueue:
         end = (self.ptr + n) % Q
         if end < self.ptr:             # wrap-around
             first = Q - self.ptr
-            self.emb[self.ptr:] = y[:first]
-            self.ids[self.ptr:] = ids[:first]
-            self.emb[:end] = y[first:]
-            self.ids[:end] = ids[first:]
+            self.emb = torch.cat([
+                self.emb[:self.ptr],
+                y[:first].detach(),
+                y[first:].detach(),
+                self.emb[end:]
+            ], dim=0)[:Q]
+            self.ids = torch.cat([
+                self.ids[:self.ptr],
+                ids[:first].detach(),
+                ids[first:].detach(),
+                self.ids[end:]
+            ], dim=0)[:Q]
         else:
-            self.emb[self.ptr:end] = y
-            self.ids[self.ptr:end] = ids
+            self.emb = torch.cat([
+                self.emb[:self.ptr],
+                y.detach(),
+                self.emb[end:]
+            ], dim=0)[:Q]
+            self.ids = torch.cat([
+                self.ids[:self.ptr],
+                ids.detach(),
+                self.ids[end:]
+            ], dim=0)[:Q]
         self.ptr = end
     
     def to(self, device):

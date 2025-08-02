@@ -1,6 +1,6 @@
 # Optuna Hyperparameter Tuning Configuration
 
-study_name: "cross_modal_tuning_v2"
+study_name: "xclip_siglip_tuning"
 n_trials: 100
 timeout: null  # seconds, or null for no timeout
 storage: null  # SQLite URL, or null for in-memory
@@ -11,7 +11,7 @@ storage: null  # SQLite URL, or null for in-memory
 # - dropout: [0.0, 0.3] (float)
 # - loss_type: ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']
 # - temperature: [0.01, 0.2] (log scale)
-# - batch_size: [256, 512, 1024]
+# - batch_size: [1024, 2048, 4096]
 # - learning_rate: [1e-5, 1e-2] (log scale)
 # - weight_decay: [1e-6, 1e-1] (log scale)
 # 
