@@ -145,8 +145,8 @@ def train_epoch_simple(image_head, text_head, train_loader, optimizer, config, d
     
     total_loss = 0
     for image_emb, text_emb, img_ids in train_loader:
-        image_emb = image_emb.to(device)
-        text_emb = text_emb.to(device)
+        image_emb = image_emb.to(device, dtype=torch.float32)
+        text_emb = text_emb.to(device, dtype=torch.float32)
         
         # Forward pass
         img_proj = image_head(image_emb)

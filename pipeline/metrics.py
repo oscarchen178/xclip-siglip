@@ -101,8 +101,8 @@ def compute_validation_metrics(image_head, text_head, val_loader, device, fast_m
             image_emb, text_emb = batch
             all_img_ids.extend(list(range(len(image_emb))))  # Fallback indices
         
-        image_emb = image_emb.to(device)
-        text_emb = text_emb.to(device)
+        image_emb = image_emb.to(device, dtype=torch.float32)
+        text_emb = text_emb.to(device, dtype=torch.float32)
         
         img_proj = image_head(image_emb)
         txt_proj = text_head(text_emb)

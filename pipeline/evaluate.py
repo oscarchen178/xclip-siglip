@@ -246,13 +246,9 @@ def load_model_from_checkpoint(checkpoint_path, device):
     image_head.load_state_dict(checkpoint['image_head_state'])
     text_head.load_state_dict(checkpoint['text_head_state'])
     
-    # Move to device with MPS compatibility
-    if device.type == 'mps':
-        image_head = image_head.to(device, dtype=torch.float32)
-        text_head = text_head.to(device, dtype=torch.float32)
-    else:
-        image_head = image_head.to(device)
-        text_head = text_head.to(device)
+    # Move to device with consistent float32 dtype
+    image_head = image_head.to(device, dtype=torch.float32)
+    text_head = text_head.to(device, dtype=torch.float32)
     
     return image_head, text_head, config
 
@@ -275,12 +271,9 @@ def extract_features(image_head, text_head, data_loader, device, pin_memory=Fals
             image_emb, text_emb = batch
             image_ids.extend([None] * len(image_emb))
         
-        if device.type == 'mps':
-            # Ensure float32 for MPS compatibility
-            image_emb = image_emb.to(device, dtype=torch.float32)
-            text_emb = text_emb.to(device, dtype=torch.float32)
-        else:
-            image_emb, text_emb = image_emb.to(device, non_blocking=pin_memory), text_emb.to(device, non_blocking=pin_memory)
+        # Force float32 for all devices to ensure consistency
+        image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
+        text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
         # Simple projection head forward pass
         img_proj = image_head(image_emb)

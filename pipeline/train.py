@@ -192,7 +192,7 @@ def main():
     pin_memory = device.type == 'cuda'  # Only use pin_memory for CUDA
     num_workers = 4 if device.type != 'mps' else 0  # MPS works better with num_workers=0
     
-    # Set consistent dtype for MPS compatibility
+    # Force float32 for all devices for consistency
     if device.type == 'mps':
         torch.backends.mps.fallback_enabled = True  # Enable fallback for unsupported ops
     
@@ -222,14 +222,9 @@ def main():
     # Create model
     image_head, text_head = create_model(config, image_dim, text_dim)
     
-    # Move to device with consistent dtype for MPS
-    if device.type == 'mps':
-        # Force float32 for MPS compatibility
-        image_head = image_head.to(device, dtype=torch.float32)
-        text_head = text_head.to(device, dtype=torch.float32)
-    else:
-        image_head = image_head.to(device)
-        text_head = text_head.to(device)
+    # Move to device with consistent float32 dtype
+    image_head = image_head.to(device, dtype=torch.float32)
+    text_head = text_head.to(device, dtype=torch.float32)
     
     # Create optimizer
     params = list(image_head.parameters()) + list(text_head.parameters())
