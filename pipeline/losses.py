@@ -17,22 +17,29 @@ class SigmoidInfoNCELoss(nn.Module):
         super().__init__()
         self.tau = tau
 
-    def forward(self, img_z, txt_z, img_ids=None):
+    def forward(self, img_z, txt_z, img_ids):
+        # img_ids is now mandatory for proper COCO multi-caption handling
+        if img_ids is None:
+            raise ValueError("img_ids is required for SigmoidInfoNCELoss - COCO has multiple captions per image")
+        
         # Normalize features
         img_z = F.normalize(img_z, dim=-1)
         txt_z = F.normalize(txt_z, dim=-1)
         
         # Similarity matrix
         logits = img_z @ txt_z.t() / self.tau                 # B × B
-        labels = torch.arange(img_z.size(0), device=img_z.device)
         
-        # Create one-hot labels for positive pairs
-        target = F.one_hot(labels, num_classes=logits.size(1)).float()
+        # Create multi-label target matrix using image IDs (vectorized)
+        batch_size = img_z.size(0)
+        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device)
+        
+        # Broadcast comparison: [B, 1] == [1, B] -> [B, B] 
+        target = (img_ids_tensor.unsqueeze(1) == img_ids_tensor.unsqueeze(0)).float()
         
         # Binary cross-entropy with logits (sigmoid InfoNCE)
         loss = F.binary_cross_entropy_with_logits(logits, target)
         
-        return loss, logits.detach(), labels
+        return loss, logits.detach(), target
 
 
 class SoftmaxInfoNCELoss(nn.Module):
@@ -41,21 +48,48 @@ class SoftmaxInfoNCELoss(nn.Module):
         super().__init__()
         self.tau = tau
 
-    def forward(self, img_z, txt_z, img_ids=None):
+    def forward(self, img_z, txt_z, img_ids):
+        # img_ids is now mandatory for proper COCO multi-caption handling
+        if img_ids is None:
+            raise ValueError("img_ids is required for SoftmaxInfoNCELoss - COCO has multiple captions per image")
+        
         # Normalize features
         img_z = F.normalize(img_z, dim=-1)
         txt_z = F.normalize(txt_z, dim=-1)
         
         # Similarity matrix
         logits = img_z @ txt_z.t() / self.tau                  # B × B
-        labels = torch.arange(img_z.size(0), device=img_z.device)
         
-        # Cross-entropy loss for both directions (symmetric)
-        loss_i2t = F.cross_entropy(logits, labels)
-        loss_t2i = F.cross_entropy(logits.t(), labels)
+        # For softmax InfoNCE with multi-caption data, we need to handle multiple positives
+        # Create mask for positive pairs (same image_id) - vectorized
+        batch_size = img_z.size(0)
+        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device)
+        
+        # Broadcast comparison: [B, 1] == [1, B] -> [B, B]
+        pos_mask = (img_ids_tensor.unsqueeze(1) == img_ids_tensor.unsqueeze(0))
+        
+        # For each query, we need to handle multiple positives in softmax
+        # Use multi-label soft targets instead of hard labels
+        target_probs = pos_mask.float()
+        # Normalize so each row sums to 1 (convert to probability distribution)
+        row_sums = target_probs.sum(dim=1, keepdim=True)
+        target_probs = target_probs / row_sums.clamp(min=1e-8)
+        
+        # KL divergence loss for I2T (image to text)
+        log_probs_i2t = F.log_softmax(logits, dim=1)
+        loss_i2t = -torch.sum(target_probs * log_probs_i2t) / batch_size
+        
+        # KL divergence loss for T2I (text to image) 
+        target_probs_t2i = target_probs.t()
+        row_sums_t2i = target_probs_t2i.sum(dim=1, keepdim=True)
+        target_probs_t2i = target_probs_t2i / row_sums_t2i.clamp(min=1e-8)
+        
+        log_probs_t2i = F.log_softmax(logits.t(), dim=1)
+        loss_t2i = -torch.sum(target_probs_t2i * log_probs_t2i) / batch_size
+        
         loss = 0.5 * (loss_i2t + loss_t2i)
         
-        return loss, logits.detach(), labels
+        return loss, logits.detach(), pos_mask
 
 
 class EmbQueue:
