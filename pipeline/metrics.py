@@ -35,9 +35,11 @@ def fast_r1(img_vec: torch.Tensor, txt_vec: torch.Tensor, img_to_txt: torch.Tens
     top1_txt = sims.argmax(dim=1)                 # (N_img,)
     img_hits = img_to_txt[torch.arange(img_vec.size(0)), top1_txt].float()
     
-    # Text→image: find if top-1 image is exact match
+    # Text→image: find if top-1 image has same image_id
     top1_img = sims.argmax(dim=0)                 # (N_txt,)
-    txt_hits = (top1_img == torch.arange(txt_vec.size(0), device=txt_vec.device)).float()
+    # Use transpose of img_to_txt mask for T2I evaluation
+    txt_to_img = img_to_txt.T  # N_txt × N_img
+    txt_hits = txt_to_img[torch.arange(txt_vec.size(0)), top1_img].float()
     
     return 0.5 * (img_hits.mean() + txt_hits.mean()).item()
 
@@ -69,10 +71,12 @@ def compute_recall_at_k(img_vec: torch.Tensor, txt_vec: torch.Tensor,
         i2t_recall = cumulative_hits[:, k-1].float().mean().item()
         metrics[f'i2t_recall@{k}'] = i2t_recall
     
-    # Text→image retrieval (exact match only)
+    # Text→image retrieval - FIXED: use image_id matching instead of exact indices
     _, top_indices = torch.topk(sims.T, max_k, dim=1)  # (N_txt, max_k)
-    exact_match = top_indices == torch.arange(num_txts, device=device).unsqueeze(1)  # (N_txt, max_k)
-    cumulative_hits = exact_match.float().cumsum(dim=1) > 0  # (N_txt, max_k)
+    # Use transpose of img_to_txt mask for T2I evaluation
+    txt_to_img = img_to_txt.T  # N_txt × N_img
+    target_gathered = txt_to_img.gather(1, top_indices)  # (N_txt, max_k)
+    cumulative_hits = target_gathered.float().cumsum(dim=1) > 0  # (N_txt, max_k)
     
     for k in k_values:
         t2i_recall = cumulative_hits[:, k-1].float().mean().item()

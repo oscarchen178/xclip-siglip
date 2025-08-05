@@ -96,9 +96,18 @@ def compute_retrieval_metrics(image_features, text_features, k_values, image_ids
         sorted_indices = torch.argsort(batch_similarities, descending=True, dim=0)
         
         for j, batch_j in enumerate(batch_indices):
-            # Find rank of the EXACT corresponding image
-            rank = (sorted_indices[:, j] == batch_j).nonzero(as_tuple=True)[0].item() + 1
-            t2i_ranks.append(rank)
+            # Find rank of ANY image with the same image_id as this text
+            target_image_id = image_ids[batch_j]
+            target_image_indices = image_id_to_indices[target_image_id]
+            
+            # Create mask for target images
+            target_mask = torch.zeros(num_samples, dtype=torch.bool, device=device)
+            target_mask[target_image_indices] = True
+            
+            # Find positions where target images appear in sorted order
+            ranks = torch.where(target_mask[sorted_indices[:, j]])[0]
+            best_rank = (ranks[0] + 1).item() if len(ranks) > 0 else num_samples
+            t2i_ranks.append(best_rank)
     
     # Compute recall@k
     metrics = {}
