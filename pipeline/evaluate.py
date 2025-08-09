@@ -47,9 +47,8 @@ def compute_retrieval_metrics(image_features, text_features, k_values, image_ids
     device = image_features.device
     
     if image_ids is None:
-        print("Warning: No image_ids provided - using simple index-based evaluation")
-        print("This may give incorrect results for COCO dataset (1 image -> 5 captions)")
-        image_ids = list(range(num_samples))  # Fallback to index-based
+        raise ValueError("image_ids must be provided for proper COCO evaluation. "
+                        "Index-based evaluation gives incorrect results for multi-caption datasets.")
     
     # Create mapping from image_id to all indices with that image_id
     from collections import defaultdict
@@ -273,12 +272,12 @@ def extract_features(image_head, text_head, data_loader, device, pin_memory=Fals
     image_ids = []
     
     for batch in tqdm(data_loader, desc="Extracting features"):
-        if len(batch) == 3:  # New format with image IDs
-            image_emb, text_emb, img_ids = batch
-            image_ids.extend(img_ids)
-        else:  # Fallback for old format
-            image_emb, text_emb = batch
-            image_ids.extend([None] * len(image_emb))
+        if len(batch) != 3:
+            raise ValueError("Dataset must provide (image_emb, text_emb, img_ids). "
+                           "Old format without image IDs is no longer supported.")
+        
+        image_emb, text_emb, img_ids = batch
+        image_ids.extend([img_id.item() for img_id in img_ids])  # Convert to list of integers
         
         # Force float32 for all devices to ensure consistency
         image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
