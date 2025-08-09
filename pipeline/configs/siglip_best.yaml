@@ -1,0 +1,34 @@
+data:
+  test_image_embeddings: test_image_embeddings.pt
+  test_text_embeddings: test_text_embeddings.pt
+  train_image_embeddings: train_image_embeddings.pt
+  train_text_embeddings: train_text_embeddings.pt
+  val_image_embeddings: val_image_embeddings.pt
+  val_text_embeddings: val_text_embeddings.pt
+device: auto
+evaluation:
+  save_features: true
+  top_k:
+  - 1
+  - 5
+  - 10
+  - 50
+  tsne_perplexity: 30
+  visualization_samples: 5000
+experiment_name: best_siglip_tuning
+loss:
+  temperature: 0.02554452141727377
+  type: sigmoid_infonce
+model:
+  dropout: 0.1657001941562694
+  output_dim: 1024
+  type: siglip
+output_dir: results
+seed: 10086
+training:
+  batch_size: 512
+  learning_rate: 0.0003314556113666777
+  max_grad_norm: 1.0
+  num_epochs: 50
+  patience: 5
+  weight_decay: 0.003909618031582255

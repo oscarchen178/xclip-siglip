@@ -41,7 +41,7 @@ from transformers import (
 )
 
 # ----------------------------- Configuration -------------------------------- #
-OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR = Path("pretrain_encoded")
 MODEL_CACHE_DIR = Path("pretrained_encoders")
 
 # Create directories
@@ -165,7 +165,6 @@ def encode_all_images(image_paths: List[Path], batch_size: int) -> torch.Tensor:
         inputs = {k: v.to(image_model.device, non_blocking=True) for k, v in inputs.items()}
         
         feats = image_model.get_image_features(**inputs)  # shape [B, D]
-        feats = torch.nn.functional.normalize(feats, dim=-1)
         embs.append(feats.cpu())
         
         # Memory cleanup for large batches
@@ -236,7 +235,6 @@ def encode_all_texts(texts: List[str], batch_size: int) -> torch.Tensor:
         summed = (hidden * mask).sum(dim=1)
         counts = mask.sum(dim=1)
         sentence_emb = summed / counts
-        sentence_emb = torch.nn.functional.normalize(sentence_emb, dim=-1)
         
         embs.append(sentence_emb.cpu())
 

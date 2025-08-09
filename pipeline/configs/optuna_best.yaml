@@ -4,7 +4,7 @@
 experiment_name: "optuna_best"
 output_dir: "results"
 device: "auto"
-seed: 42
+seed: 10086
 
 # Data paths
 data:
