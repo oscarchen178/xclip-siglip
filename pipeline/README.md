@@ -179,7 +179,6 @@ model:
   output_dim: 512
   hidden_dim: 1024
   dropout: 0.1
-  learnable_temp: true
 loss:
   type: \"softmax_infonce\"
 ```

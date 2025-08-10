@@ -100,7 +100,6 @@ def create_config(trial, search_space) -> Dict[str, Any]:
         config['model']['hidden_dim'] = trial.suggest_categorical('hidden_dim', search_space['hidden_dim']['choices'])
     
     if head_type == 'clip':
-        config['model']['learnable_temp'] = trial.suggest_categorical('learnable_temp', search_space['learnable_temp']['choices'])
         if 'learnable_scale' in search_space:
             config['loss']['learnable_scale'] = trial.suggest_categorical('learnable_scale', search_space['learnable_scale']['choices'])
     

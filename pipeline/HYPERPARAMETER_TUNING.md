@@ -66,10 +66,6 @@ search_space:
     type: categorical
     choices: [512, 1024, 2048]
   
-  # CLIP-specific: learnable temperature
-  learnable_temp:
-    type: categorical
-    choices: [true, false]
   
   # Attention-specific: number of attention heads
   num_heads:

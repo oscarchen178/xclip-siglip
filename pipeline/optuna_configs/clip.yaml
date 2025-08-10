@@ -35,7 +35,7 @@ search_space:
   # Loss configuration - CLIP specific
   loss_type:
     type: categorical
-    choices: ['clip', 'softmax_infonce']  # CLIP loss and standard InfoNCE
+    choices: ['softmax_infonce']  # CLIP loss and standard InfoNCE
   
   temperature:
     type: float
@@ -64,10 +64,6 @@ search_space:
   hidden_dim:
     type: categorical
     choices: [512, 1024, 2048]
-  
-  learnable_temp:
-    type: categorical
-    choices: [true, false]
   
   learnable_scale:
     type: categorical
