@@ -130,7 +130,7 @@ def train_epoch_simple(image_head, text_head, train_loader, optimizer, config, d
         txt_proj = text_head(text_emb)
         
         # Compute loss
-        loss = compute_loss(img_proj, txt_proj, config, image_head, text_head, img_ids=img_ids)
+        loss = compute_loss(img_proj, txt_proj, config, img_ids)
         
         # Backward pass
         optimizer.zero_grad()
