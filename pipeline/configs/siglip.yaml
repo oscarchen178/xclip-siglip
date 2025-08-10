@@ -29,6 +29,7 @@ training:
 loss:
   type: "sigmoid_infonce"   # Uses authentic sigmoid loss
   temperature: 0.01         # SigLIP uses lower temperature than CLIP
+  learnable_scale: false    # Use fixed temperature from config
 
 evaluation:
   top_k: [1, 5, 10, 50]

@@ -58,6 +58,10 @@ search_space:
   learnable_temp:
     type: categorical
     choices: [true, false]
+  
+  learnable_scale:
+    type: categorical
+    choices: [true, false]
 
 # ASHA pruner settings
 pruner:

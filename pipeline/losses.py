@@ -9,13 +9,19 @@ SOTA methods with proper InfoNCE variants.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 
 class SigmoidInfoNCELoss(nn.Module):
     """Sigmoid InfoNCE loss (SigLIP) - uses binary cross-entropy."""
-    def __init__(self, tau: float = 0.07):
+    def __init__(self, tau: float = 0.07, learnable_scale: bool = False):
         super().__init__()
-        self.tau = tau
+        self.learnable_scale = learnable_scale
+        if not learnable_scale:
+            self.tau = tau
+        else:
+            # Create learnable temperature parameter in the loss function
+            self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1/tau))  # Init to 1/tau
 
     def forward(self, img_z, txt_z, img_ids):
         # img_ids is now mandatory for proper COCO multi-caption handling
@@ -26,8 +32,14 @@ class SigmoidInfoNCELoss(nn.Module):
         img_z = F.normalize(img_z, dim=-1)
         txt_z = F.normalize(txt_z, dim=-1)
         
+        # Determine temperature to use
+        if self.learnable_scale:
+            tau = 1.0 / self.logit_scale.exp()  # Use loss function's own parameter
+        else:
+            tau = self.tau  # Use fixed temperature
+        
         # Similarity matrix
-        logits = img_z @ txt_z.t() / self.tau                 # B × B
+        logits = img_z @ txt_z.t() / tau                 # B × B
         
         # Create multi-label target matrix using image IDs (vectorized)
         batch_size = img_z.size(0)
@@ -40,13 +52,25 @@ class SigmoidInfoNCELoss(nn.Module):
         loss = F.binary_cross_entropy_with_logits(logits, target)
         
         return loss, logits.detach(), target
+    
+    def get_temperature(self):
+        """Get current temperature (for monitoring)."""
+        if self.learnable_scale:
+            return 1.0 / self.logit_scale.exp().item()
+        else:
+            return self.tau
 
 
 class SoftmaxInfoNCELoss(nn.Module):
     """Softmax InfoNCE loss (CLIP) - uses cross-entropy."""
-    def __init__(self, tau: float = 0.07):
+    def __init__(self, tau: float = 0.07, learnable_scale: bool = False):
         super().__init__()
-        self.tau = tau
+        self.learnable_scale = learnable_scale
+        if not learnable_scale:
+            self.tau = tau
+        else:
+            # Create learnable temperature parameter in the loss function
+            self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1/tau))  # Init to 1/tau
 
     def forward(self, img_z, txt_z, img_ids):
         # img_ids is now mandatory for proper COCO multi-caption handling
@@ -57,8 +81,14 @@ class SoftmaxInfoNCELoss(nn.Module):
         img_z = F.normalize(img_z, dim=-1)
         txt_z = F.normalize(txt_z, dim=-1)
         
+        # Determine temperature to use
+        if self.learnable_scale:
+            tau = 1.0 / self.logit_scale.exp()  # Use loss function's own parameter
+        else:
+            tau = self.tau  # Use fixed temperature
+        
         # Similarity matrix
-        logits = img_z @ txt_z.t() / self.tau                  # B × B
+        logits = img_z @ txt_z.t() / tau                  # B × B
         
         # For softmax InfoNCE with multi-caption data, we need to handle multiple positives
         # Create mask for positive pairs (same image_id) - vectorized
@@ -90,6 +120,13 @@ class SoftmaxInfoNCELoss(nn.Module):
         loss = 0.5 * (loss_i2t + loss_t2i)
         
         return loss, logits.detach(), pos_mask
+    
+    def get_temperature(self):
+        """Get current temperature (for monitoring)."""
+        if self.learnable_scale:
+            return 1.0 / self.logit_scale.exp().item()
+        else:
+            return self.tau
 
 
 class EmbQueue:
@@ -143,9 +180,14 @@ class EmbQueue:
 
 class QueueInfoNCELoss(nn.Module):
     """Queue-based InfoNCE loss with hard negatives and image ID awareness."""
-    def __init__(self, queue_size: int = 4096, tau: float = 0.07, feature_dim: int = 512):
+    def __init__(self, queue_size: int = 4096, tau: float = 0.07, feature_dim: int = 512, learnable_scale: bool = False):
         super().__init__()
-        self.tau = tau
+        self.learnable_scale = learnable_scale
+        if not learnable_scale:
+            self.tau = tau
+        else:
+            # Create learnable temperature parameter in the loss function
+            self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1/tau))  # Init to 1/tau
         self.queue = None
         self.queue_size = queue_size
         self.feature_dim = feature_dim
@@ -164,6 +206,12 @@ class QueueInfoNCELoss(nn.Module):
         if img_ids is not None:
             img_ids = img_ids.to(img_z.device)
         
+        # Determine temperature to use
+        if self.learnable_scale:
+            tau = 1.0 / self.logit_scale.exp()  # Use loss function's own parameter
+        else:
+            tau = self.tau  # Use fixed temperature
+        
         # Initialize queue if needed or if feature dimension has changed
         if self.queue is None or self.queue.emb.size(1) != img_z.size(1):
             self._init_queue(img_z.device, img_z.size(1))
@@ -173,12 +221,12 @@ class QueueInfoNCELoss(nn.Module):
             self.queue.to(img_z.device)
 
         # In-batch logits
-        logits = img_z @ txt_z.t() / self.tau                  # B × B
+        logits = img_z @ txt_z.t() / tau                  # B × B
         labels = torch.arange(img_z.size(0), device=img_z.device)
 
         # Extra negatives from queue
         if self.queue.emb.sum() != 0:  # Check if queue has been populated
-            q_logits = img_z @ self.queue.emb.t() / self.tau   # B × Q
+            q_logits = img_z @ self.queue.emb.t() / tau   # B × Q
             
             # Mask out positives (same image_id) in queue
             if img_ids is not None:
@@ -200,6 +248,13 @@ class QueueInfoNCELoss(nn.Module):
             self.queue.enqueue(txt_z.detach(), batch_ids)
         
         return loss, logits.detach(), labels
+    
+    def get_temperature(self):
+        """Get current temperature (for monitoring)."""
+        if self.learnable_scale:
+            return 1.0 / self.logit_scale.exp().item()
+        else:
+            return self.tau
 
 
 # Loss function management
@@ -217,19 +272,20 @@ def clear_loss_instances():
 
 def get_loss_instance(loss_type, config, device):
     """Get or create loss function instance."""
-    key = f"{loss_type}_{device}"
+    learnable_scale = config['loss'].get('learnable_scale', False)
+    key = f"{loss_type}_{device}_{learnable_scale}"
     
     if key not in _loss_instances:
         temperature = float(config['loss'].get('temperature', 0.07))
         
         if loss_type == 'sigmoid_infonce':
-            _loss_instances[key] = SigmoidInfoNCELoss(tau=temperature)
+            _loss_instances[key] = SigmoidInfoNCELoss(tau=temperature, learnable_scale=learnable_scale)
         elif loss_type == 'softmax_infonce':
-            _loss_instances[key] = SoftmaxInfoNCELoss(tau=temperature)
+            _loss_instances[key] = SoftmaxInfoNCELoss(tau=temperature, learnable_scale=learnable_scale)
         elif loss_type == 'queue_infonce':
             queue_size = int(config['loss'].get('queue_size', 4096))
             feature_dim = int(config['loss'].get('feature_dim', 512))
-            loss_fn = QueueInfoNCELoss(queue_size, temperature, feature_dim)
+            loss_fn = QueueInfoNCELoss(queue_size, temperature, feature_dim, learnable_scale=learnable_scale)
             _loss_instances[key] = loss_fn.to(device) if hasattr(loss_fn, 'to') else loss_fn
         else:
             raise ValueError(f"Unknown loss type: {loss_type}")
@@ -244,8 +300,8 @@ def compute_loss(image_proj, text_proj, config, image_head=None, text_head=None,
         image_proj: Image projection features
         text_proj: Text projection features  
         config: Training configuration
-        image_head: Image projection head (for CLIP temperature)
-        text_head: Text projection head (for CLIP temperature)
+        image_head: Unused (kept for backward compatibility)
+        text_head: Unused (kept for backward compatibility)
         img_ids: Image IDs for queue-based losses
     
     Returns:
@@ -253,7 +309,7 @@ def compute_loss(image_proj, text_proj, config, image_head=None, text_head=None,
     """
     loss_type = config['loss'].get('type', 'sigmoid_infonce')
     
-    # InfoNCE losses
+    # InfoNCE losses - temperature is handled internally by loss functions
     if loss_type in ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']:
         loss_fn = get_loss_instance(loss_type, config, image_proj.device)
         

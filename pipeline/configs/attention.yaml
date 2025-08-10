@@ -32,6 +32,7 @@ training:
 loss:
   type: "softmax_infonce"  # Works well with attention
   temperature: 0.07
+  learnable_scale: false   # Use fixed temperature from config
 
 evaluation:
   top_k: [1, 5, 10, 50]

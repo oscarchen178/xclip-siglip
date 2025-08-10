@@ -85,8 +85,8 @@ class SigLIPProjectionHead(nn.Module):
         return F.normalize(x, dim=-1)
 
 class CLIPProjectionHead(nn.Module):
-    """CLIP-style projection head with learnable temperature scaling."""
-    def __init__(self, input_dim, output_dim, hidden_dim=None, dropout=0.1, learnable_temp=True):
+    """CLIP-style projection head - simple MLP projection."""
+    def __init__(self, input_dim, output_dim, hidden_dim=None, dropout=0.1):
         super().__init__()
         
         if hidden_dim is None:
@@ -99,19 +99,9 @@ class CLIPProjectionHead(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, output_dim),
         )
-        
-        # Learnable temperature parameter (CLIP innovation)
-        if learnable_temp:
-            self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1/0.07))  # Init to 1/0.07
-        else:
-            self.register_buffer('logit_scale', torch.tensor(math.log(1/0.07)))
     
     def forward(self, x):
         return F.normalize(self.projection(x), dim=-1)
-    
-    def get_temperature(self):
-        """Get current temperature (for monitoring)."""
-        return self.logit_scale.exp().item()
 
 
 class ALIGNProjectionHead(nn.Module):
@@ -217,15 +207,13 @@ def create_model(config, image_dim, text_dim):
             image_dim,
             model_config['output_dim'],
             model_config.get('hidden_dim', image_dim // 2),
-            model_config.get('dropout', 0.1),
-            model_config.get('learnable_temp', True)
+            model_config.get('dropout', 0.1)
         )
         text_head = CLIPProjectionHead(
             text_dim,
             model_config['output_dim'],
             model_config.get('hidden_dim', text_dim // 2),
-            model_config.get('dropout', 0.1),
-            model_config.get('learnable_temp', True)
+            model_config.get('dropout', 0.1)
         )
         return image_head, text_head
     

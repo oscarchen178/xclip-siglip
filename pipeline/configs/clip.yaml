@@ -18,7 +18,6 @@ model:
   output_dim: 512
   hidden_dim: 1024          # Will default to input_dim // 2 if not specified
   dropout: 0.1
-  learnable_temp: true      # CLIP's key innovation
 
 training:
   batch_size: 512
@@ -31,6 +30,7 @@ training:
 loss:
   type: "softmax_infonce"              # Uses learnable temperature from model
   temperature: 0.07         # Initial temperature (will be learned)
+  learnable_scale: true     # Use model's learnable logit_scale parameter
 
 evaluation:
   top_k: [1, 5, 10, 50]

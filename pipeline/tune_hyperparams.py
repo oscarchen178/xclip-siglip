@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Model creation now uses models.create_model() for consistency
-from losses import compute_loss, clear_loss_instances
+from losses import compute_loss, clear_loss_instances, get_loss_instance
 from metrics import compute_validation_metrics
 from dataset import create_train_dataset, create_eval_dataset
 
@@ -101,6 +101,8 @@ def create_config(trial, search_space) -> Dict[str, Any]:
     
     if head_type == 'clip':
         config['model']['learnable_temp'] = trial.suggest_categorical('learnable_temp', search_space['learnable_temp']['choices'])
+        if 'learnable_scale' in search_space:
+            config['loss']['learnable_scale'] = trial.suggest_categorical('learnable_scale', search_space['learnable_scale']['choices'])
     
     if head_type == 'attention':
         config['model']['num_heads'] = trial.suggest_categorical('num_heads', search_space['num_heads']['choices'])
@@ -176,8 +178,16 @@ def create_objective_function(tuning_config):
                                num_workers=num_workers, pin_memory=pin_memory)
         
         # Create optimizer
+        # Create optimizer including loss function parameters if learnable scale is enabled
+        params = list(image_head.parameters()) + list(text_head.parameters())
+        
+        # Add loss function parameters if using learnable temperature
+        if config['loss'].get('learnable_scale', False):
+            loss_fn = get_loss_instance(config['loss']['type'], config, device)
+            params.extend(list(loss_fn.parameters()))
+        
         optimizer = torch.optim.AdamW(
-            list(image_head.parameters()) + list(text_head.parameters()),
+            params,
             lr=config['training']['learning_rate'],
             weight_decay=config['training']['weight_decay']
         )

@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 from models import create_model
 from losses import compute_loss
 from dataset import create_train_dataset, create_eval_dataset
+from metrics import compute_validation_metrics
 
 
 
@@ -33,29 +34,45 @@ from dataset import create_train_dataset, create_eval_dataset
 # Model definitions moved to models.py
 
 
-def plot_training_curves(train_losses, val_losses, output_dir):
-    """Plot and save training curves."""
-    plt.figure(figsize=(10, 6))
+def plot_training_curves(train_losses, val_losses, val_r1_scores, output_dir):
+    """Plot and save training curves with loss and R@1."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     epochs = range(1, len(train_losses) + 1)
     
-    plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2)
-    plt.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2)
+    # Plot training and validation loss together
+    ax1.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2)
+    ax1.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2)
+    ax1.set_title('Training and Validation Loss', fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Epoch', fontsize=12)
+    ax1.set_ylabel('Loss', fontsize=12)
+    ax1.legend(fontsize=12)
+    ax1.grid(True, alpha=0.3)
     
-    plt.title('Training and Validation Loss Curves', fontsize=14, fontweight='bold')
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('Loss', fontsize=12)
-    plt.legend(fontsize=12)
-    plt.grid(True, alpha=0.3)
-    
-    # Add best epoch marker
-    best_epoch = val_losses.index(min(val_losses)) + 1
+    # Add best loss epoch marker (lower is better)
+    best_loss_epoch = val_losses.index(min(val_losses)) + 1
     best_val_loss = min(val_losses)
-    plt.axvline(x=best_epoch, color='green', linestyle='--', alpha=0.7, 
-                label=f'Best Epoch ({best_epoch})')
-    plt.scatter([best_epoch], [best_val_loss], color='green', s=100, zorder=5)
+    ax1.axvline(x=best_loss_epoch, color='orange', linestyle='--', alpha=0.7, 
+                label=f'Best Loss Epoch ({best_loss_epoch})')
+    ax1.scatter([best_loss_epoch], [best_val_loss], color='orange', s=100, zorder=5)
+    ax1.legend(fontsize=12)
     
-    plt.legend(fontsize=12)
+    # Plot validation R@1
+    ax2.plot(epochs, val_r1_scores, 'g-', label='Validation R@1', linewidth=2)
+    ax2.set_title('Validation R@1 (Early Stopping)', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Epoch', fontsize=12)
+    ax2.set_ylabel('R@1 Score', fontsize=12)
+    ax2.legend(fontsize=12)
+    ax2.grid(True, alpha=0.3)
+    
+    # Add best R@1 epoch marker (higher is better) - this is used for early stopping
+    best_r1_epoch = val_r1_scores.index(max(val_r1_scores)) + 1
+    best_val_r1 = max(val_r1_scores)
+    ax2.axvline(x=best_r1_epoch, color='green', linestyle='--', alpha=0.7, 
+                label=f'Best R@1 Epoch ({best_r1_epoch})')
+    ax2.scatter([best_r1_epoch], [best_val_r1], color='green', s=100, zorder=5)
+    ax2.legend(fontsize=12)
+    
     plt.tight_layout()
     
     # Save plot
@@ -65,18 +82,21 @@ def plot_training_curves(train_losses, val_losses, output_dir):
     
     print(f"Training curves saved to: {plot_path}")
     
-    # Also save loss history as JSON for later analysis
-    loss_history = {
+    # Also save training history as JSON for later analysis
+    training_history = {
         'train_losses': train_losses,
         'val_losses': val_losses,
-        'best_epoch': best_epoch,
+        'val_r1_scores': val_r1_scores,
+        'best_r1_epoch': best_r1_epoch,
+        'best_val_r1': best_val_r1,
+        'best_loss_epoch': best_loss_epoch,
         'best_val_loss': best_val_loss
     }
     
-    with open(output_dir / 'loss_history.json', 'w') as f:
-        json.dump(loss_history, f, indent=2)
+    with open(output_dir / 'training_history.json', 'w') as f:
+        json.dump(training_history, f, indent=2)
     
-    print(f"Loss history saved to: {output_dir / 'loss_history.json'}")
+    print(f"Training history saved to: {output_dir / 'training_history.json'}")
 
 
 
@@ -226,8 +246,15 @@ def main():
     image_head = image_head.to(device, dtype=torch.float32)
     text_head = text_head.to(device, dtype=torch.float32)
     
-    # Create optimizer
+    # Create optimizer including loss function parameters if learnable scale is enabled
     params = list(image_head.parameters()) + list(text_head.parameters())
+    
+    # Add loss function parameters if using learnable temperature
+    if config['loss'].get('learnable_scale', False):
+        from losses import get_loss_instance
+        loss_fn = get_loss_instance(config['loss'].get('type', 'sigmoid_infonce'), config, device)
+        params.extend(list(loss_fn.parameters()))
+        print(f"Added {len(list(loss_fn.parameters()))} loss function parameters to optimizer")
     
     optimizer = torch.optim.AdamW(
         params,
@@ -240,39 +267,44 @@ def main():
     output_dir = Path(config['output_dir']) / config_name
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    best_val_loss = float('inf')
+    best_val_r1 = 0.0  # R@1 metric, higher is better
     patience_counter = 0
     
-    # Track losses for plotting
+    # Track metrics for plotting
     train_losses = []
     val_losses = []
+    val_r1_scores = []
     
     print("Starting training...")
     for epoch in range(config['training']['num_epochs']):
         # Train
         train_loss = train_epoch(image_head, text_head, train_loader, optimizer, device, config, pin_memory)
         
-        # Validate
+        # Validate: compute both loss (for monitoring) and R@1 (for early stopping)
         val_loss = validate(image_head, text_head, val_loader, device, config, pin_memory)
+        val_metrics = compute_validation_metrics(image_head, text_head, val_loader, device, fast_mode=True)
+        val_r1 = val_metrics['val_recall_1']
         
-        # Store losses for plotting
+        # Store metrics for plotting
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        val_r1_scores.append(val_r1)
         
-        # Log epoch results with optional temperature for CLIP
-        log_msg = f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train: {train_loss:.4f}, Val: {val_loss:.4f}"
+        # Log epoch results with both loss and R@1, plus optional temperature if learnable
+        log_msg = f"Epoch {epoch+1}/{config['training']['num_epochs']} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val R@1: {val_r1:.4f}"
         
-        if config['model']['type'] == 'clip':
-            # Log learned temperature for CLIP
-            if hasattr(image_head, 'get_temperature'):
-                temp = image_head.get_temperature()
-                log_msg += f", Temp: {temp:.3f}"
+        # Log learnable temperature if enabled
+        if config['loss'].get('learnable_scale', False):
+            from losses import get_loss_instance
+            loss_fn = get_loss_instance(config['loss'].get('type', 'sigmoid_infonce'), config, device)
+            temp = loss_fn.get_temperature()
+            log_msg += f", Temp: {temp:.3f}"
         
         print(log_msg)
         
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # Save best model (higher R@1 is better)
+        if val_r1 > best_val_r1:
+            best_val_r1 = val_r1
             patience_counter = 0
             
             # Save checkpoint
@@ -281,11 +313,11 @@ def main():
                 'config': config,
                 'image_head_state': image_head.state_dict(),
                 'text_head_state': text_head.state_dict(),
-                'val_loss': val_loss
+                'val_r1': val_r1
             }
             
             torch.save(checkpoint, output_dir / 'best_model.pt')
-            print(f"New best model saved! Val loss: {val_loss:.4f}")
+            print(f"New best model saved! Val R@1: {val_r1:.4f}")
         else:
             patience_counter += 1
             
@@ -294,12 +326,12 @@ def main():
             print(f"Early stopping at epoch {epoch+1}")
             break
     
-    print(f"Training completed! Best val loss: {best_val_loss:.4f}")
+    print(f"Training completed! Best val R@1: {best_val_r1:.4f}")
     print(f"Model saved to: {output_dir / 'best_model.pt'}")
     
     # Plot and save training curves
     print("Generating training curves...")
-    plot_training_curves(train_losses, val_losses, output_dir)
+    plot_training_curves(train_losses, val_losses, val_r1_scores, output_dir)
 
 
 if __name__ == "__main__":
