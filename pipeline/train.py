@@ -111,12 +111,12 @@ def train_epoch(image_head, text_head, train_loader, optimizer, device, config, 
         image_emb = image_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         text_emb = text_emb.to(device, dtype=torch.float32, non_blocking=pin_memory)
         
-        # Forward pass (simplified, no cross-modal or BLIP support)
+        # Forward pass
         image_proj = image_head(image_emb)
         text_proj = text_head(text_emb)
         
-        # Compute loss with image IDs for queue-based losses
-        loss = compute_loss(image_proj, text_proj, config, image_head, text_head, img_ids=img_ids)
+        # Compute loss
+        loss = compute_loss(image_proj, text_proj, config, img_ids)
         
         # Backward pass
         optimizer.zero_grad()
@@ -149,7 +149,7 @@ def validate(image_head, text_head, val_loader, device, config, pin_memory):
         text_proj = text_head(text_emb)
         
         # Compute loss with image IDs
-        loss = compute_loss(image_proj, text_proj, config, image_head, text_head, img_ids=img_ids)
+        loss = compute_loss(image_proj, text_proj, config, img_ids)
         total_loss += loss.item()
     
     return total_loss / len(val_loader)

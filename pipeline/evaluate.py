@@ -272,10 +272,8 @@ def extract_features(image_head, text_head, data_loader, device, pin_memory=Fals
     image_ids = []
     
     for batch in tqdm(data_loader, desc="Extracting features"):
-        if len(batch) != 3:
-            raise ValueError("Dataset must provide (image_emb, text_emb, img_ids). "
-                           "Old format without image IDs is no longer supported.")
-        
+        assert len(batch) == 3, "Dataset must provide (image_emb, text_emb, img_ids)."
+
         image_emb, text_emb, img_ids = batch
         image_ids.extend([img_id.item() for img_id in img_ids])  # Convert to list of integers
         

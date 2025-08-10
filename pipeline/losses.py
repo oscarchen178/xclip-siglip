@@ -203,8 +203,7 @@ class QueueInfoNCELoss(nn.Module):
         txt_z = F.normalize(txt_z, dim=-1)
         
         # Ensure img_ids is on the same device
-        if img_ids is not None:
-            img_ids = img_ids.to(img_z.device)
+        img_ids = img_ids.to(img_z.device)
         
         # Determine temperature to use
         if self.learnable_scale:
@@ -229,9 +228,8 @@ class QueueInfoNCELoss(nn.Module):
             q_logits = img_z @ self.queue.emb.t() / tau   # B × Q
             
             # Mask out positives (same image_id) in queue
-            if img_ids is not None:
-                mask = img_ids.unsqueeze(1).eq(self.queue.ids.unsqueeze(0))
-                q_logits = q_logits.masked_fill(mask, float('-inf'))
+            mask = img_ids.unsqueeze(1).eq(self.queue.ids.unsqueeze(0))
+            q_logits = q_logits.masked_fill(mask, float('-inf'))
             
             # Concatenate batch and queue logits
             logits = torch.cat([logits, q_logits], dim=1)
@@ -240,12 +238,7 @@ class QueueInfoNCELoss(nn.Module):
         loss = F.cross_entropy(logits, labels)
         
         # Update queue with current batch
-        if img_ids is not None:
-            self.queue.enqueue(txt_z.detach(), img_ids.detach())
-        else:
-            # If no img_ids, use indices as fallback
-            batch_ids = torch.arange(len(txt_z), device=txt_z.device)
-            self.queue.enqueue(txt_z.detach(), batch_ids)
+        self.queue.enqueue(txt_z.detach(), img_ids.detach())
         
         return loss, logits.detach(), labels
     
@@ -293,33 +286,25 @@ def get_loss_instance(loss_type, config, device):
     return _loss_instances[key]
 
 
-def compute_loss(image_proj, text_proj, config, image_head=None, text_head=None, img_ids=None):
+def compute_loss(image_proj, text_proj, config, img_ids):
     """Compute loss based on configuration.
     
     Args:
         image_proj: Image projection features
         text_proj: Text projection features  
         config: Training configuration
-        image_head: Unused (kept for backward compatibility)
-        text_head: Unused (kept for backward compatibility)
         img_ids: Image IDs for queue-based losses
     
     Returns:
         Computed loss value
     """
     loss_type = config['loss'].get('type', 'sigmoid_infonce')
+    assert img_ids is not None, "img_ids must be provided for loss computation"
     
     # InfoNCE losses - temperature is handled internally by loss functions
     if loss_type in ['sigmoid_infonce', 'softmax_infonce', 'queue_infonce']:
         loss_fn = get_loss_instance(loss_type, config, image_proj.device)
-        
-        if loss_type == 'queue_infonce':
-            if img_ids is None:
-                img_ids = torch.arange(len(image_proj), device=image_proj.device)
-            loss, _, _ = loss_fn(image_proj, text_proj, img_ids)
-        else:
-            loss, _, _ = loss_fn(image_proj, text_proj, img_ids)
-        
+        loss, _, _ = loss_fn(image_proj, text_proj, img_ids)
         return loss
     
     else:

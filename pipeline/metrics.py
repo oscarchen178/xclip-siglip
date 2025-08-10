@@ -98,13 +98,11 @@ def compute_validation_metrics(image_head, text_head, val_loader, device, fast_m
     all_img_feats, all_txt_feats, all_img_ids = [], [], []
     
     for batch in val_loader:
-        if len(batch) == 3:
-            image_emb, text_emb, img_ids = batch
-            all_img_ids.extend(img_ids)
-        else:
-            image_emb, text_emb = batch
-            all_img_ids.extend(list(range(len(image_emb))))  # Fallback indices
-        
+        assert len(batch) == 3, "Dataset must provide (image_emb, text_emb, img_ids)."
+
+        image_emb, text_emb, img_ids = batch
+        all_img_ids.extend([img_id.item() for img_id in img_ids])
+
         image_emb = image_emb.to(device, dtype=torch.float32)
         text_emb = text_emb.to(device, dtype=torch.float32)
         
