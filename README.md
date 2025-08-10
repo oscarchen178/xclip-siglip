@@ -35,21 +35,32 @@ python evaluate.py configs/siglip.yaml        # Evaluate
 
 - **Image**: SigLIP2-Giant (1536D) → Projection Head → 512D
 - **Text**: E5-Mistral-7B (4096D) → Projection Head → 512D  
-- **Loss**: InfoNCE (Sigmoid/Softmax/Queue variants)
+- **Loss**: InfoNCE variants with proper COCO image ID matching
 - **Expected**: 30-60% R@1 on COCO test set
+
+## Key Features
+
+- **4 projection heads**: SigLIP, CLIP, Attention, MLP
+- **3 loss functions**: Sigmoid InfoNCE, Softmax InfoNCE, Queue InfoNCE
+- **COCO-aware evaluation** with proper 1:5 image-to-caption mapping
+- **Configurable data paths** via `base_data_dir`
+- **Hyperparameter tuning** with Optuna + ASHA pruning
 
 ## Advanced Usage
 
 See `pipeline/README.md` for:
-- Hyperparameter tuning with Optuna
-- Multiple model architectures (SigLIP, CLIP, Attention, MLP)
-- Configuration management
-Files are saved to `outputs/` directory:
-- `{dataset}_image_embeddings.pt` - Image embeddings tensor
-- `{dataset}_text_embeddings.pt` - Text embeddings tensor  
-- `{dataset}_metadata.json` - Dataset metadata and mappings
+- Hyperparameter tuning configurations
+- Multiple model architectures and loss functions
+- Training and evaluation workflows
 
-Example output files:
-- `outputs/val2017_image_embeddings.pt`
-- `outputs/train2017_text_embeddings.pt`
+### Output Structure
+Files are saved to `pretrain_encoded/` directory:
+- `{dataset}_image_embeddings.pt` - Image embeddings tensor
+- `{dataset}_text_embeddings.pt` - Text embeddings tensor
+- `{dataset}_metadata.json` - COCO image IDs and mappings
+
+Example files:
+- `pretrain_encoded/val2017_image_embeddings.pt`
+- `pretrain_encoded/train2017_text_embeddings.pt`
+- `pretrain_encoded/val2017_metadata.json`
 

@@ -1,99 +1,126 @@
 # Training Configuration Files
 
-This directory contains YAML configuration files for training specific projection head models.
+This directory contains YAML configuration files for training different projection head models.
 
-## Available Model Configurations
+## Available Configurations
 
 | Config | Model Type | Loss Function | Description |
 |--------|------------|---------------|-------------|
-| **`siglip.yaml`** | SigLIP | Sigmoid InfoNCE | Authentic SigLIP with low temperature |
-| **`clip.yaml`** | CLIP | CLIP/Softmax InfoNCE | CLIP with learnable temperature |
+| **`siglip.yaml`** | SigLIP | Sigmoid InfoNCE | Authentic SigLIP with low temperature (0.01) |
+| **`clip.yaml`** | CLIP | Softmax InfoNCE | CLIP with learnable temperature scaling |
 | **`attention.yaml`** | Attention | Softmax InfoNCE | Multi-head self-attention projection |
 | **`mlp.yaml`** | MLP | Softmax InfoNCE | Simple MLP baseline |
-| **`optuna_best.yaml`** | Best | Variable | Best configuration from hyperparameter tuning |
+| **`optuna_best.yaml`** | Attention | Softmax InfoNCE | Best configuration from tuning |
+| **`optuna_best_v2.yaml`** | Attention | Softmax InfoNCE | Alternative best configuration |
 
 ## Model Architecture Details
 
-- **`siglip`**: Simple projection (LayerNorm → Dropout → Linear) with sigmoid loss
-- **`clip`**: MLP projection with learnable temperature scaling
-- **`attention`**: Multi-head self-attention based projection
-- **`mlp`**: Basic MLP baseline (Linear → GELU → Dropout → Linear)
+- **SigLIP**: LayerNorm → Dropout → Linear (simple & effective)
+- **CLIP**: Linear → GELU → Dropout → Linear (MLP with learnable temp)
+- **Attention**: Multi-head self-attention → Linear projection
+- **MLP**: Linear → GELU → Dropout → Linear → LayerNorm (baseline)
+
+## Configuration Features
+
+- **`base_data_dir`** parameter for flexible data paths
+- **Complete metadata paths** for COCO image ID handling
+- **Learnable temperature** support in loss functions
+- **Model-specific parameters** for each architecture
 
 ## Quick Start
 
 ```bash
-# Train with different model configurations
-python train.py configs/siglip.yaml
-python train.py configs/clip.yaml
-python train.py configs/attention.yaml
-python train.py configs/mlp.yaml
+# Train different architectures
+python train.py configs/siglip.yaml      # SigLIP model
+python train.py configs/clip.yaml        # CLIP model  
+python train.py configs/attention.yaml   # Attention model
+python train.py configs/mlp.yaml         # MLP baseline
 
-# Hyperparameter tuning for specific models
-python tune_hyperparams.py optuna_configs/siglip.yaml
-python tune_hyperparams.py optuna_configs/clip.yaml
-
-# Train with best config from tuning
+# Use optimized configurations
 python train.py configs/optuna_best.yaml
 ```
 
-## Hyperparameter Tuning Configurations
-
-For hyperparameter tuning configurations, see the `../optuna_configs/` directory:
-- `../optuna_configs/default.yaml` - Multi-model search (all architectures)
-- `../optuna_configs/siglip.yaml` - SigLIP-focused optimization
-- `../optuna_configs/clip.yaml` - CLIP-focused optimization  
-- `../optuna_configs/attention.yaml` - Attention architecture tuning
-- `../optuna_configs/mlp.yaml` - MLP baseline optimization
-
 ## Configuration Structure
 
+**Complete config template:**
 ```yaml
-experiment_name: "your_experiment"
-device: "auto"  # auto, cuda, mps, cpu
+experiment_name: "my_experiment"
+device: "auto"
 seed: 42
+base_data_dir: "../pretrain_encoded"
 
-# Data files
 data:
   train_image_embeddings: "train_image_embeddings.pt"
   train_text_embeddings: "train_text_embeddings.pt"
-  # ... etc
+  train_metadata: "train_metadata.json"
+  val_image_embeddings: "val_image_embeddings.pt"
+  val_text_embeddings: "val_text_embeddings.pt"
+  val_metadata: "val2017_metadata.json"
+  test_image_embeddings: "test_image_embeddings.pt"
+  test_text_embeddings: "test_text_embeddings.pt"
+  test_metadata: "test_metadata.json"
 
-# Model architecture  
 model:
-  type: "siglip"  # siglip, clip, attention
+  type: "siglip"           # siglip, clip, attention, mlp
   output_dim: 512
-  dropout: 0.1
-  # ... model-specific params
+  dropout: 0.0
+  # Model-specific parameters:
+  # hidden_dim: 1024       # for clip, attention, mlp
+  # num_heads: 8           # for attention only
+  # num_layers: 2          # for attention only
 
-# Training settings
 training:
-  batch_size: 1024
+  batch_size: 512
   learning_rate: 1e-4
   weight_decay: 0.01
   num_epochs: 50
+  patience: 5
+  max_grad_norm: 1.0
 
-# Loss function
 loss:
-  type: "sigmoid_infonce"
+  type: "sigmoid_infonce"  # sigmoid_infonce, softmax_infonce, queue_infonce
   temperature: 0.07
+  learnable_scale: false   # true for learnable temperature
 
-# Evaluation
 evaluation:
   top_k: [1, 5, 10, 50]
+  visualization_samples: 5000
   save_features: true
 ```
 
-## Recommended Configurations
+## Hyperparameter Tuning
 
-1. **For beginners**: Start with `softmax_infonce.yaml`
-2. **For SigLIP research**: Use `sigmoid_infonce.yaml`  
-3. **For advanced training**: Try `queue_infonce.yaml`
-4. **For hyperparameter tuning**: Run `tune_hyperparams.py`
+For automated hyperparameter optimization, see `../optuna_configs/`:
+- **`default.yaml`**: Multi-model search (all 4 architectures, 150 trials)
+- **`siglip.yaml`**: SigLIP-specific (lower temps, sigmoid loss only)
+- **`clip.yaml`**: CLIP-specific (learnable temperature, softmax loss)
+- **`attention.yaml`**: Attention-specific (head/layer tuning)
+- **`mlp.yaml`**: MLP baseline optimization
 
-## Legacy Configurations
+```bash
+# Run hyperparameter tuning
+python tune_hyperparams.py optuna_configs/default.yaml
+python tune_hyperparams.py optuna_configs/siglip.yaml
+```
 
-Old configurations in this directory may use deprecated loss names:
-- `"siglip"` → now `"sigmoid_infonce"`
-- `"infonce"` → now `"softmax_infonce"`
+## Model-Specific Recommendations
 
-The system maintains backward compatibility, but new configurations use the updated names for clarity.
+**SigLIP** (`siglip.yaml`):
+- Low temperature (0.01)
+- Minimal dropout (0.0)
+- Sigmoid InfoNCE loss
+
+**CLIP** (`clip.yaml`): 
+- Learnable temperature
+- Standard dropout (0.1)
+- Softmax InfoNCE loss
+
+**Attention** (`attention.yaml`):
+- Multi-head attention (8 heads)
+- Multiple layers (1-3)
+- Softmax InfoNCE loss
+
+**MLP** (`mlp.yaml`):
+- Simple baseline architecture
+- Hidden layer configuration
+- Standard regularization

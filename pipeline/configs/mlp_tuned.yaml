@@ -1,0 +1,41 @@
+base_data_dir: "../pretrain_encoded"
+
+data:
+  train_image_embeddings: "train_image_embeddings.pt"
+  train_text_embeddings: "train_text_embeddings.pt"
+  train_metadata: "train_metadata.json"
+  val_image_embeddings: "val_image_embeddings.pt"
+  val_text_embeddings: "val_text_embeddings.pt"
+  val_metadata: "val2017_metadata.json"
+  test_image_embeddings: "test_image_embeddings.pt"
+  test_text_embeddings: "test_text_embeddings.pt"
+  test_metadata: "test_metadata.json"
+
+device: auto
+evaluation:
+  save_features: true
+  top_k:
+  - 1
+  - 5
+  - 10
+  - 50
+  tsne_perplexity: 30
+  visualization_samples: 5000
+experiment_name: best_mlp_tuning
+loss:
+  temperature: 0.012411373579284743
+  type: softmax_infonce
+model:
+  dropout: 0.2093056042567713
+  hidden_dim: 2048
+  output_dim: 512
+  type: mlp
+output_dir: results
+seed: 42
+training:
+  batch_size: 2048
+  learning_rate: 0.0001353752639563163
+  max_grad_norm: 1.0
+  num_epochs: 50
+  patience: 5
+  weight_decay: 0.005008466679987926
