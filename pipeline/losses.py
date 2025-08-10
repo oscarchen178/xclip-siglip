@@ -43,7 +43,7 @@ class SigmoidInfoNCELoss(nn.Module):
         
         # Create multi-label target matrix using image IDs (vectorized)
         batch_size = img_z.size(0)
-        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device)
+        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device, dtype=torch.long)
         
         # Broadcast comparison: [B, 1] == [1, B] -> [B, B] 
         target = (img_ids_tensor.unsqueeze(1) == img_ids_tensor.unsqueeze(0)).float()
@@ -93,7 +93,7 @@ class SoftmaxInfoNCELoss(nn.Module):
         # For softmax InfoNCE with multi-caption data, we need to handle multiple positives
         # Create mask for positive pairs (same image_id) - vectorized
         batch_size = img_z.size(0)
-        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device)
+        img_ids_tensor = torch.as_tensor(img_ids, device=img_z.device, dtype=torch.long)
         
         # Broadcast comparison: [B, 1] == [1, B] -> [B, B]
         pos_mask = (img_ids_tensor.unsqueeze(1) == img_ids_tensor.unsqueeze(0))
@@ -202,8 +202,8 @@ class QueueInfoNCELoss(nn.Module):
         img_z = F.normalize(img_z, dim=-1)
         txt_z = F.normalize(txt_z, dim=-1)
         
-        # Ensure img_ids is on the same device
-        img_ids = img_ids.to(img_z.device)
+        # Ensure img_ids is a tensor of dtype long on the same device
+        img_ids = torch.as_tensor(img_ids, device=img_z.device, dtype=torch.long)
         
         # Determine temperature to use
         if self.learnable_scale:
