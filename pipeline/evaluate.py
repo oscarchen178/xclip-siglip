@@ -362,11 +362,12 @@ def main():
         # Fallback: try original train2017 metadata (contains all image IDs)
         metadata_path = test_img_path.parent / "train2017_metadata.json"
     
+    base_dir = config.get('base_data_dir', '../pretrain_encoded')  # Fallback for legacy configs
     eval_dataset = create_eval_dataset(
-        "../pretrain_encoded",
+        base_dir,
         config['data']['test_image_embeddings'],
         config['data']['test_text_embeddings'],
-        "test_metadata.json"
+        config['data']['test_metadata']
     )
     
     # Create data loader with device-optimized settings

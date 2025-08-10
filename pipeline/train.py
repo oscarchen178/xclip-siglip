@@ -197,15 +197,18 @@ def main():
     # Create datasets
     print("Using training split for training (~95K samples)")
     print("Using validation split for validation (~5K samples)")
+    base_dir = config.get('base_data_dir', '../pretrain_encoded')  # Fallback for legacy configs
     train_dataset = create_train_dataset(
-        "../pretrain_encoded",
+        base_dir,
         config['data']['train_image_embeddings'],
-        config['data']['train_text_embeddings']
+        config['data']['train_text_embeddings'],
+        config['data']['train_metadata']
     )
     val_dataset = create_eval_dataset(
-        "../pretrain_encoded", 
+        base_dir, 
         config['data']['val_image_embeddings'],
-        config['data']['val_text_embeddings']
+        config['data']['val_text_embeddings'],
+        config['data']['val_metadata']
     )
     
     # Create data loaders with device-optimized settings

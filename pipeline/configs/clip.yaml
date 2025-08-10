@@ -4,14 +4,18 @@ experiment_name: "clip"
 output_dir: "results"
 device: "auto"
 seed: 42
+base_data_dir: "../pretrain_encoded"
 
 data:
-  train_image_embeddings: "../pretrain_encoded/train_image_embeddings.pt"
-  train_text_embeddings: "../pretrain_encoded/train_text_embeddings.pt"
-  val_image_embeddings: "../pretrain_encoded/val_image_embeddings.pt"
-  val_text_embeddings: "../pretrain_encoded/val_text_embeddings.pt"
-  test_image_embeddings: "../pretrain_encoded/test_image_embeddings.pt"
-  test_text_embeddings: "../pretrain_encoded/test_text_embeddings.pt"
+  train_image_embeddings: "train_image_embeddings.pt"
+  train_text_embeddings: "train_text_embeddings.pt"
+  train_metadata: "train_metadata.json"
+  val_image_embeddings: "val_image_embeddings.pt"
+  val_text_embeddings: "val_text_embeddings.pt"
+  val_metadata: "val2017_metadata.json"
+  test_image_embeddings: "test_image_embeddings.pt"
+  test_text_embeddings: "test_text_embeddings.pt"
+  test_metadata: "test_metadata.json"
 
 model:
   type: "clip"

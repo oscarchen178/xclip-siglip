@@ -5,6 +5,16 @@ n_trials: 40  # Fewer trials for simple baseline
 timeout: null
 storage: "sqlite:///optuna_mlp.db"
 n_jobs: 2
+base_data_dir: "../pretrain_encoded"
+
+# Data paths for hyperparameter tuning
+data:
+  train_image_embeddings: "train_tuning_image_embeddings.pt"
+  train_text_embeddings: "train_tuning_text_embeddings.pt"
+  train_metadata: "train_tuning_metadata.json"
+  val_image_embeddings: "val_image_embeddings.pt"
+  val_text_embeddings: "val_text_embeddings.pt"
+  val_metadata: "val2017_metadata.json"
 
 # Search space focused on MLP architecture
 search_space:

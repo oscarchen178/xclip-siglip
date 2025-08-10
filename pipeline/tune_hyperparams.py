@@ -156,8 +156,15 @@ def create_objective_function(tuning_config):
         device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
         
         # Create datasets (use tuning subset for faster hyperparameter search)
-        train_dataset = create_train_dataset("../pretrain_encoded", "train_tuning_image_embeddings.pt", "train_tuning_text_embeddings.pt", "train_tuning_metadata.json")
-        val_dataset = create_eval_dataset("../pretrain_encoded", "val_image_embeddings.pt", "val_text_embeddings.pt", "val_metadata.json")
+        base_dir = tuning_config.get('base_data_dir', '../pretrain_encoded')  # Fallback for legacy configs
+        train_dataset = create_train_dataset(base_dir, 
+                                            tuning_config['data']['train_image_embeddings'], 
+                                            tuning_config['data']['train_text_embeddings'], 
+                                            tuning_config['data']['train_metadata'])
+        val_dataset = create_eval_dataset(base_dir, 
+                                         tuning_config['data']['val_image_embeddings'], 
+                                         tuning_config['data']['val_text_embeddings'], 
+                                         tuning_config['data']['val_metadata'])
         
         # Get dimensions
         image_dim = train_dataset.image_embeddings.shape[1]

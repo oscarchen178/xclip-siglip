@@ -70,8 +70,7 @@ def create_eval_dataset(pretrain_dir, image_path, text_path, metadata_path=None)
     """Create evaluation dataset with image IDs for proper COCO metrics."""
     image_path = Path(pretrain_dir) / image_path
     text_path = Path(pretrain_dir) / text_path
-    if metadata_path:
-        metadata_path = Path(pretrain_dir) / metadata_path
+    metadata_path = Path(pretrain_dir) / metadata_path
     return EmbeddingDataset(image_path, text_path, metadata_path, with_image_ids=True)
 
 

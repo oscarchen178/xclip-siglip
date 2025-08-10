@@ -60,8 +60,9 @@ def evaluate_on_dataset(image_head, text_head, dataset_name, config, device):
     dataset_config = dataset_configs[dataset_name]
     
     # Create evaluation dataset
+    base_dir = config.get('base_data_dir', '../pretrain_encoded')  # Fallback for legacy configs
     eval_dataset = create_eval_dataset(
-        "../pretrain_encoded",
+        base_dir,
         dataset_config['image_embeddings'],
         dataset_config['text_embeddings'], 
         dataset_config['metadata']
